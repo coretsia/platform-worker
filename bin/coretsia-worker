@@ -1,0 +1,422 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Coretsia Framework (Monorepo)
+ *
+ * Project: Coretsia Framework (Monorepo)
+ * Authors: Vladyslav Mudrichenko and contributors
+ * Copyright (c) 2026 Vladyslav Mudrichenko
+ *
+ * SPDX-FileCopyrightText: 2026 Vladyslav Mudrichenko
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * For contributors list, see git history.
+ * See LICENSE and NOTICE in the project root for full license information.
+ */
+
+use Coretsia\Kernel\Boot\ArtifactRuntimeBooter;
+use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Worker\ApplicationWorker;
+use Psr\Container\ContainerInterface;
+
+\error_reporting(\E_ALL);
+\ini_set('display_errors', '0');
+
+const CORETSIA_WORKER_CHILD_BOOT_ERROR_CODE = 'CORETSIA_WORKER_CHILD_BOOT_FAILED';
+
+/**
+ * Local deterministic launcher failure.
+ *
+ * This exception is intentionally local to the launcher. The reason is a safe
+ * stable token controlled by this file only.
+ */
+final class CoretsiaWorkerChildBootFailure extends \RuntimeException
+{
+    public function __construct(
+        private readonly string $safeReason,
+    ) {
+        parent::__construct(self::class);
+    }
+
+    public function safeReason(): string
+    {
+        return $this->safeReason;
+    }
+}
+
+/**
+ * Emits exactly one normalized line to STDERR.
+ */
+function coretsia_worker_child_emit_line(string $line): void
+{
+    $normalized = \rtrim($line, "\r\n");
+
+    \fwrite(\STDERR, $normalized . "\n");
+}
+
+/**
+ * Emits a deterministic safe failure and exits.
+ */
+function coretsia_worker_child_fail(string $reason): never
+{
+    coretsia_worker_child_emit_line(CORETSIA_WORKER_CHILD_BOOT_ERROR_CODE);
+    coretsia_worker_child_emit_line($reason);
+
+    exit(1);
+}
+
+/**
+ * Throws a local safe failure.
+ */
+function coretsia_worker_child_throw(string $reason): never
+{
+    throw new CoretsiaWorkerChildBootFailure($reason);
+}
+
+/**
+ * @return array{
+ *     index: int,
+ *     count: int,
+ *     max_requests: int,
+ *     task_type: string,
+ *     driver: string,
+ *     config: string,
+ *     container: string
+ * }
+ */
+function coretsia_worker_child_parse_args(array $argv): array
+{
+    if (!\array_is_list($argv) || $argv === []) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    $values = [];
+
+    foreach (\array_slice($argv, 1) as $token) {
+        if (!\is_string($token) || $token === '') {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+
+        if (\preg_match('/[\x00-\x1F\x7F]/', $token) === 1) {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+
+        if (!\str_starts_with($token, '--coretsia-worker-')) {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+
+        $separator = \strpos($token, '=');
+        if ($separator === false || $separator < 1) {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+
+        $key = \substr($token, 2, $separator - 2);
+        $value = \substr($token, $separator + 1);
+
+        if ($key === '' || $value === '') {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+
+        if (isset($values[$key])) {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+
+        $values[$key] = $value;
+    }
+
+    $required = [
+        'coretsia-worker-index',
+        'coretsia-worker-count',
+        'coretsia-worker-max-requests',
+        'coretsia-worker-task-type',
+        'coretsia-worker-driver',
+        'coretsia-worker-config',
+        'coretsia-worker-container',
+    ];
+
+    foreach ($required as $key) {
+        if (!isset($values[$key]) || !\is_string($values[$key])) {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+    }
+
+    foreach (\array_keys($values) as $key) {
+        if (!\in_array($key, $required, true)) {
+            coretsia_worker_child_throw('argv-invalid');
+        }
+    }
+
+    $index = coretsia_worker_child_non_negative_int($values['coretsia-worker-index']);
+    $count = coretsia_worker_child_positive_int($values['coretsia-worker-count']);
+    $maxRequests = coretsia_worker_child_positive_int($values['coretsia-worker-max-requests']);
+    $taskType = $values['coretsia-worker-task-type'];
+    $driver = $values['coretsia-worker-driver'];
+    $config = $values['coretsia-worker-config'];
+    $container = $values['coretsia-worker-container'];
+
+    if ($index >= $count) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    if ($taskType !== 'queue' && $taskType !== 'http') {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    if ($driver !== 'proc') {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    if (!coretsia_worker_child_is_relative_safe_path($config)) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    if (!coretsia_worker_child_is_relative_safe_path($container)) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    return [
+        'index' => $index,
+        'count' => $count,
+        'max_requests' => $maxRequests,
+        'task_type' => $taskType,
+        'driver' => $driver,
+        'config' => $config,
+        'container' => $container,
+    ];
+}
+
+function coretsia_worker_child_non_negative_int(string $value): int
+{
+    if ($value === '' || !\ctype_digit($value)) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    $int = \filter_var($value, \FILTER_VALIDATE_INT);
+    if (!\is_int($int) || $int < 0) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    return $int;
+}
+
+function coretsia_worker_child_positive_int(string $value): int
+{
+    $int = coretsia_worker_child_non_negative_int($value);
+
+    if ($int < 1) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
+
+    return $int;
+}
+
+function coretsia_worker_child_normalize_skeleton_root(string $root): string
+{
+    $root = \trim($root);
+
+    if ($root === '' || \str_contains($root, "\0")) {
+        coretsia_worker_child_throw('cwd-invalid');
+    }
+
+    $root = \rtrim(\str_replace('\\', '/', $root), '/');
+
+    if ($root === '') {
+        coretsia_worker_child_throw('cwd-invalid');
+    }
+
+    return $root;
+}
+
+function coretsia_worker_child_is_relative_safe_path(string $path): bool
+{
+    if ($path === '') {
+        return false;
+    }
+
+    if (\trim($path) !== $path) {
+        return false;
+    }
+
+    if (\preg_match('/\s/u', $path) === 1) {
+        return false;
+    }
+
+    if (\str_contains($path, "\0") || \str_contains($path, "\r") || \str_contains($path, "\n")) {
+        return false;
+    }
+
+    if (\str_starts_with($path, '/') || \str_starts_with($path, '\\')) {
+        return false;
+    }
+
+    if (\preg_match('/\A[A-Za-z]:[\/\\\\]/', $path) === 1) {
+        return false;
+    }
+
+    if (\str_contains($path, '\\')) {
+        return false;
+    }
+
+    if (\str_contains($path, '://')) {
+        return false;
+    }
+
+    if (\str_contains($path, '//')) {
+        return false;
+    }
+
+    foreach (\explode('/', $path) as $segment) {
+        if ($segment === '' || $segment === '.' || $segment === '..') {
+            return false;
+        }
+
+        if (\str_starts_with($segment, '@')) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function coretsia_worker_child_resolve_relative_path(string $skeletonRoot, string $relativePath): string
+{
+    if (!coretsia_worker_child_is_relative_safe_path($relativePath)) {
+        coretsia_worker_child_throw('path-invalid');
+    }
+
+    return $skeletonRoot . '/' . $relativePath;
+}
+
+function coretsia_worker_child_require_autoload(string $skeletonRoot): void
+{
+    $autoloadFile = $skeletonRoot . '/vendor/autoload.php';
+
+    \set_error_handler(static fn (): bool => true);
+
+    try {
+        if (!\is_file($autoloadFile) || !\is_readable($autoloadFile)) {
+            coretsia_worker_child_throw('autoload-missing');
+        }
+
+        require $autoloadFile;
+    } catch (CoretsiaWorkerChildBootFailure $exception) {
+        throw $exception;
+    } catch (\Throwable) {
+        coretsia_worker_child_throw('autoload-invalid');
+    } finally {
+        \restore_error_handler();
+    }
+}
+
+function coretsia_worker_child_boot_container(
+    string $configArtifactPath,
+    string $containerArtifactPath,
+): ContainerInterface {
+    try {
+        return new ArtifactRuntimeBooter()->boot(
+            configArtifactPath: $configArtifactPath,
+            containerArtifactPath: $containerArtifactPath,
+        );
+    } catch (\Throwable) {
+        coretsia_worker_child_throw('runtime-container-boot-failed');
+    }
+}
+
+/**
+ * @template T of object
+ *
+ * @param class-string<T> $id
+ *
+ * @return T
+ */
+function coretsia_worker_child_service(ContainerInterface $container, string $id): object
+{
+    try {
+        $service = $container->get($id);
+    } catch (\Throwable) {
+        coretsia_worker_child_throw('service-unresolvable');
+    }
+
+    if (!$service instanceof $id) {
+        coretsia_worker_child_throw('service-invalid');
+    }
+
+    return $service;
+}
+
+/**
+ * @param array{
+ *     index: int,
+ *     count: int,
+ *     max_requests: int,
+ *     task_type: string,
+ *     driver: string,
+ *     config: string,
+ *     container: string
+ * } $args
+ */
+function coretsia_worker_child_assert_args_match_spec(array $args, WorkerPoolSpec $spec): void
+{
+    if ($args['count'] !== $spec->workers()) {
+        coretsia_worker_child_throw('worker-args-mismatch');
+    }
+
+    if ($args['max_requests'] !== $spec->maxRequests()) {
+        coretsia_worker_child_throw('worker-args-mismatch');
+    }
+
+    if ($args['task_type'] !== $spec->taskType()) {
+        coretsia_worker_child_throw('worker-args-mismatch');
+    }
+
+    if ($args['driver'] !== 'proc' || $spec->driver() !== 'proc') {
+        coretsia_worker_child_throw('worker-args-mismatch');
+    }
+}
+
+try {
+    $cwd = \getcwd();
+
+    if (!\is_string($cwd)) {
+        coretsia_worker_child_throw('cwd-invalid');
+    }
+
+    $skeletonRoot = coretsia_worker_child_normalize_skeleton_root($cwd);
+    $args = coretsia_worker_child_parse_args($_SERVER['argv'] ?? []);
+
+    coretsia_worker_child_require_autoload($skeletonRoot);
+
+    $configArtifactPath = coretsia_worker_child_resolve_relative_path(
+        skeletonRoot: $skeletonRoot,
+        relativePath: $args['config'],
+    );
+
+    $containerArtifactPath = coretsia_worker_child_resolve_relative_path(
+        skeletonRoot: $skeletonRoot,
+        relativePath: $args['container'],
+    );
+
+    $container = coretsia_worker_child_boot_container(
+        configArtifactPath: $configArtifactPath,
+        containerArtifactPath: $containerArtifactPath,
+    );
+
+    /** @var WorkerPoolSpec $spec */
+    $spec = coretsia_worker_child_service($container, WorkerPoolSpec::class);
+
+    coretsia_worker_child_assert_args_match_spec($args, $spec);
+
+    /** @var ApplicationWorker $worker */
+    $worker = coretsia_worker_child_service($container, ApplicationWorker::class);
+
+    $worker->run($spec);
+
+    exit(0);
+} catch (CoretsiaWorkerChildBootFailure $exception) {
+    coretsia_worker_child_fail($exception->safeReason());
+} catch (\Throwable) {
+    coretsia_worker_child_fail('worker-child-failed');
+}

@@ -1,0 +1,74 @@
+{
+  "name": "coretsia/platform-worker",
+  "type": "library",
+  "description": "Coretsia long-running worker runtime package: worker pool orchestration, application workers, and deterministic runtime safety.",
+  "keywords": [
+    "coretsia",
+    "php",
+    "framework",
+    "worker",
+    "runtime",
+    "long-running",
+    "processes",
+    "queue",
+    "http",
+    "deterministic",
+    "reset"
+  ],
+  "license": "Apache-2.0",
+  "authors": [
+    {
+      "name": "Coretsia Team",
+      "email": "team@coretsia.dev",
+      "homepage": "https://coretsia.dev/"
+    }
+  ],
+  "bin": [
+    "bin/coretsia-worker"
+  ],
+  "require": {
+    "php": "^8.4",
+    "coretsia/core-contracts": "^0.4.0",
+    "coretsia/core-foundation": "^0.4.0",
+    "coretsia/core-kernel": "^0.4.0",
+    "psr/container": "^2.0",
+    "psr/http-message": "^2.0",
+    "psr/http-server-handler": "^1.0",
+    "psr/log": "^3.0"
+  },
+  "suggest": {
+    "ext-pcntl": "Enables the optional pcntl worker manager driver on supported Unix-like platforms.",
+    "ext-posix": "Enables POSIX signal handling for the optional pcntl worker manager driver on supported Unix-like platforms."
+  },
+  "autoload": {
+    "psr-4": {
+      "Coretsia\\Platform\\Worker\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Coretsia\\Platform\\Worker\\Tests\\": "tests/"
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.4.0"
+    }
+  },
+  "extra": {
+    "coretsia": {
+      "kind": "runtime",
+      "moduleId": "platform.worker",
+      "moduleClass": "Coretsia\\Platform\\Worker\\Module\\WorkerModule",
+      "providers": [
+        "Coretsia\\Platform\\Worker\\Provider\\WorkerServiceProvider"
+      ],
+      "requires": [
+        "core.kernel"
+      ],
+      "conflicts": [],
+      "defaultsConfigPath": "config/worker.php"
+    }
+  }
+}
