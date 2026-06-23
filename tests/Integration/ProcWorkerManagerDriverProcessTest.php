@@ -567,19 +567,19 @@ PHP;
 
         do {
             if (\is_file($argvLog)) {
-                $bytes = \file_get_contents($argvLog);
+                $bytes = self::tryReadFile($argvLog);
 
-                self::assertIsString($bytes);
+                if ($bytes !== null) {
+                    $lines = \array_values(
+                        \array_filter(
+                            \explode("\n", \trim($bytes)),
+                            static fn (string $line): bool => $line !== '',
+                        ),
+                    );
 
-                $lines = \array_values(
-                    \array_filter(
-                        \explode("\n", \trim($bytes)),
-                        static fn (string $line): bool => $line !== '',
-                    ),
-                );
-
-                if (\count($lines) >= $expectedCount) {
-                    return $lines;
+                    if (\count($lines) >= $expectedCount) {
+                        return $lines;
+                    }
                 }
             }
 
@@ -652,6 +652,24 @@ PHP;
         $bytes = \file_get_contents($path);
 
         self::assertIsString($bytes);
+
+        return $bytes;
+    }
+
+    private static function tryReadFile(string $path): ?string
+    {
+        /*
+         * On Windows, a child worker may hold an exclusive file lock while appending
+         * the argv log. file_get_contents() can then transiently fail with EACCES.
+         *
+         * This helper is used only from polling test code, where a temporary read
+         * failure means "retry until deadline", not "test failed".
+         */
+        $bytes = @\file_get_contents($path);
+
+        if (!\is_string($bytes)) {
+            return null;
+        }
 
         return $bytes;
     }

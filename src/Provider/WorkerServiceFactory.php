@@ -62,9 +62,12 @@ use Psr\Log\LoggerInterface;
  * noop logger/tracer/meter implementations, and must not write stdout/stderr.
  *
  * Defaults are owned by config/worker.php and merged config. This factory reads
- * the complete WorkerPoolSpec key set and passes it to WorkerPoolSpec. Proc child
- * command-vector config is read separately by procWorkerCommand(). Missing config
- * keys fail deterministically instead of being silently invented here.
+ * the validated worker config root and passes it to WorkerPoolSpec. Proc child
+ * command-vector config is read separately by procWorkerCommand() because it
+ * performs package-owned `@php` token normalization.
+ *
+ * Missing or invalid worker config root data fails deterministically instead of
+ * being silently invented here.
  */
 final class WorkerServiceFactory
 {
@@ -82,7 +85,7 @@ final class WorkerServiceFactory
         ?bool $unixDomainSocketsSupported = null,
     ): WorkerPoolSpec {
         return WorkerPoolSpec::fromConfig(
-            config: self::workerConfig($config),
+            config: self::workerConfigRoot($config),
             pcntlForkAvailable: $pcntlForkAvailable,
             platformFamily: $platformFamily,
             unixDomainSocketsSupported: $unixDomainSocketsSupported,
@@ -284,40 +287,23 @@ final class WorkerServiceFactory
     }
 
     /**
-     * @return array{
-     *     enabled: mixed,
-     *     workers: mixed,
-     *     max_requests: mixed,
-     *     task_type: mixed,
-     *     socket_path: mixed,
-     *     driver: mixed,
-     *     control: array{transport: mixed},
-     *     tcp: array{host: mixed, port: mixed},
-     *     state_path: mixed,
-     *     stop_flag_path: mixed,
-     *     stop_timeout_ms: mixed
-     * }
+     * Reads the validated `worker` config root from the active config repository.
+     *
+     * The repository may be backed by generated config artifacts. This factory does
+     * not read package config files and does not invent worker defaults.
+     *
+     * @return array<string, mixed>
      */
-    private static function workerConfig(ConfigRepositoryInterface $config): array
+    private static function workerConfigRoot(ConfigRepositoryInterface $config): array
     {
-        return [
-            'enabled' => self::requiredConfigValue($config, 'worker.enabled'),
-            'workers' => self::requiredConfigValue($config, 'worker.workers'),
-            'max_requests' => self::requiredConfigValue($config, 'worker.max_requests'),
-            'task_type' => self::requiredConfigValue($config, 'worker.task_type'),
-            'socket_path' => self::requiredConfigValue($config, 'worker.socket_path'),
-            'driver' => self::requiredConfigValue($config, 'worker.driver'),
-            'control' => [
-                'transport' => self::requiredConfigValue($config, 'worker.control.transport'),
-            ],
-            'tcp' => [
-                'host' => self::requiredConfigValue($config, 'worker.tcp.host'),
-                'port' => self::requiredConfigValue($config, 'worker.tcp.port'),
-            ],
-            'state_path' => self::requiredConfigValue($config, 'worker.state_path'),
-            'stop_flag_path' => self::requiredConfigValue($config, 'worker.stop_flag_path'),
-            'stop_timeout_ms' => self::requiredConfigValue($config, 'worker.stop_timeout_ms'),
-        ];
+        $workerConfig = self::requiredConfigValue($config, 'worker');
+
+        if (!\is_array($workerConfig) || \array_is_list($workerConfig)) {
+            throw WorkerStartFailedException::invalidState();
+        }
+
+        /** @var array<string, mixed> $workerConfig */
+        return $workerConfig;
     }
 
     private static function phpBinary(): string

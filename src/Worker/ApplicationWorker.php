@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Worker;
 
 use Coretsia\Contracts\Context\ContextAccessorInterface;
+use Coretsia\Contracts\Context\ContextKeys;
 use Coretsia\Contracts\Observability\Metrics\MeterPortInterface;
 use Coretsia\Contracts\Observability\Tracing\SpanInterface;
 use Coretsia\Contracts\Observability\Tracing\TracerPortInterface;
@@ -47,8 +48,9 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
  * - before/after hook invocation;
  * - reset orchestration.
  *
- * ApplicationWorker may read only safe context keys for observability
- * correlation. It must not write context values.
+ * ApplicationWorker may read only safe context keys from the public
+ * contract-level ContextKeys vocabulary for observability correlation. It must
+ * not write context values.
  *
  * Observability dependencies are injected. This class must not instantiate noop
  * logger, tracer, meter, or observability adapters directly.
@@ -77,17 +79,6 @@ final readonly class ApplicationWorker
 
     private const string OUTCOME_SUCCESS = 'success';
     private const string OUTCOME_FAILURE = 'failure';
-
-    /*
-     * These names mirror the canonical context keys written by KernelRuntime.
-     *
-     * ApplicationWorker intentionally does not import Foundation-owned ContextKeys:
-     * cross-cutting ownership gates allow direct ContextKeys usage only in
-     * Foundation/Kernel owners.
-     */
-    private const string CONTEXT_CORRELATION_ID = 'correlation_id';
-    private const string CONTEXT_UOW_ID = 'uow_id';
-    private const string CONTEXT_UOW_TYPE = 'uow_type';
 
     private readonly string $skeletonRoot;
 
@@ -291,9 +282,9 @@ final readonly class ApplicationWorker
 
         foreach (
             [
-                self::CONTEXT_CORRELATION_ID,
-                self::CONTEXT_UOW_ID,
-                self::CONTEXT_UOW_TYPE,
+                ContextKeys::CORRELATION_ID,
+                ContextKeys::UOW_ID,
+                ContextKeys::UOW_TYPE,
             ] as $key
         ) {
             try {

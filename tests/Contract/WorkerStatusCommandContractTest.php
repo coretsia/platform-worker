@@ -65,8 +65,8 @@ final class WorkerStatusCommandContractTest extends TestCase
 
         self::assertFalse($input->tokensCalled, 'WorkerStatusCommand must not call InputInterface::tokens().');
 
-        self::assertSame(12, $config->hasCalls);
-        self::assertSame(12, $config->getCalls);
+        self::assertSame(1, $config->hasCalls);
+        self::assertSame(1, $config->getCalls);
 
         self::assertSame(1, $driver->statusCalls);
         self::assertInstanceOf(WorkerPoolSpec::class, $driver->lastStatusSpec);
