@@ -134,7 +134,7 @@ final readonly class ApplicationWorker
         );
 
         $span = $this->startTaskSpan($labels);
-        $startedAt = $this->stopwatch->start();
+        $startedAt = $this->safeStartTimer();
         $outcome = self::OUTCOME_SUCCESS;
 
         try {
@@ -332,10 +332,25 @@ final readonly class ApplicationWorker
         }
     }
 
-    private function safeDurationMs(int $startedAt): int
+    private function safeStartTimer(): mixed
     {
         try {
-            return $this->stopwatch->stop($startedAt);
+            return $this->stopwatch->start();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function safeDurationMs(mixed $startedAt): int
+    {
+        if (!\is_int($startedAt) || $startedAt <= 0) {
+            return 0;
+        }
+
+        try {
+            $durationMs = $this->stopwatch->stop($startedAt);
+
+            return $durationMs >= 0 ? $durationMs : 0;
         } catch (\Throwable) {
             return 0;
         }

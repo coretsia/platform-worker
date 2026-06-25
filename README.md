@@ -291,8 +291,7 @@ WorkerStartCommand
   -> WorkerManager::start(...)
 ```
 
-Runtime-driver guard failures are surfaced with the original Kernel guard error
-code and reason token.
+Runtime-driver guard failures are surfaced with the original Kernel guard error code and reason token.
 
 They are not translated into worker-specific conflict errors.
 
@@ -300,15 +299,13 @@ They are not translated into worker-specific conflict errors.
 
 Stops the configured worker pool through `WorkerManager`.
 
-The command does not write stop flags directly, open control sockets directly,
-or read/write worker state files directly.
+The command does not write stop flags directly, open control sockets directly, or read/write worker state files directly.
 
 ### `worker:status`
 
 Reads worker pool status through `WorkerManager`.
 
-The command does not read state files directly and does not inspect raw runtime
-paths or endpoints.
+The command does not read state files directly and does not inspect raw runtime paths or endpoints.
 
 ### Successful command summaries
 
@@ -323,8 +320,7 @@ control_transport
 endpoint_hash
 ```
 
-Raw socket paths, raw TCP endpoints, config values, payloads, headers, tokens,
-absolute paths, and throwable messages MUST NOT be exposed.
+Raw socket paths, raw TCP endpoints, config values, payloads, headers, tokens, absolute paths, and throwable messages MUST NOT be exposed.
 
 ## Runtime-driver guard boundary
 
@@ -346,13 +342,11 @@ RuntimeDriverGuard::assertHttpDriverCompatibleWithModules(...)
 
 with the caller-provided `ModulePlan`.
 
-Missing `platform.http` for HTTP worker mode must fail through
-`RuntimeDriverGuard` before request-handler resolution.
+Missing `platform.http` for HTTP worker mode must fail through `RuntimeDriverGuard` before request-handler resolution.
 
 The worker package MUST NOT duplicate runtime-driver matrix logic.
 
-The worker package MUST NOT reclassify runtime-driver guard failures as worker
-exceptions.
+The worker package MUST NOT reclassify runtime-driver guard failures as worker exceptions.
 
 ## UnitOfWork and reset boundary
 
@@ -362,8 +356,7 @@ exceptions.
 Coretsia\Contracts\Runtime\KernelRuntimeInterface::runUnitOfWork(...)
 ```
 
-Reset discipline between worker tasks is achieved only transitively through
-KernelRuntime.
+Reset discipline between worker tasks is achieved only transitively through KernelRuntime.
 
 The canonical lifecycle is:
 
@@ -389,8 +382,7 @@ Kernel owns UnitOfWork lifecycle semantics.
 
 Foundation owns reset orchestration infrastructure.
 
-The worker package owns only the long-running loop and task submission into the
-Kernel runtime boundary.
+The worker package owns only the long-running loop and task submission into the Kernel runtime boundary.
 
 ## Task modes
 
@@ -413,9 +405,7 @@ The current queue task factory is package-local placeholder task work.
 
 It does not implement a production queue adapter.
 
-Real queue sources, transports, acknowledgement semantics, retry semantics,
-dead-letter behavior, and integration-specific adapters are owned by later
-integration epics.
+Real queue sources, transports, acknowledgement semantics, retry semantics, dead-letter behavior, and integration-specific adapters are owned by later integration epics.
 
 ### HTTP task mode
 
@@ -516,12 +506,9 @@ health
 
 The control channel MUST NOT transport task payloads.
 
-Control communication failures map to deterministic worker communication
-failures.
+Control communication failures map to deterministic worker communication failures.
 
-Public diagnostics MUST NOT expose raw socket paths, socket basenames, raw TCP
-hosts, raw TCP ports, raw endpoint strings, payloads, headers, tokens, or
-throwable messages.
+Public diagnostics MUST NOT expose raw socket paths, socket basenames, raw TCP hosts, raw TCP ports, raw endpoint strings, payloads, headers, tokens, or throwable messages.
 
 ## Observability
 
@@ -574,8 +561,9 @@ Logger, tracer, meter, stopwatch, and context dependencies are injected.
 
 Worker runtime classes MUST NOT instantiate observability adapters directly.
 
-Observability failures MUST NOT change worker lifecycle semantics, task
-semantics, reset semantics, or selected public failure.
+Observability failures MUST NOT change worker lifecycle semantics, task semantics, reset semantics, or selected public failure.
+
+ApplicationWorker stopwatch start/stop failures MUST NOT change worker task execution, KernelRuntime delegation, task outcome selection, or worker task failure precedence. When worker task timing is unavailable, task duration metadata MUST collapse to `0`.
 
 ## Errors
 
@@ -619,9 +607,7 @@ CORETSIA_WORKER_COMMUNICATION_FAILED: communication_failed
 CORETSIA_WORKER_NOT_RUNNING: not_running
 ```
 
-Worker exception messages MUST NOT include previous throwable messages, stack
-traces, absolute paths, raw socket paths, raw TCP endpoints, raw config values,
-payload fragments, headers, tokens, process command lines, or environment data.
+Worker exception messages MUST NOT include previous throwable messages, stack traces, absolute paths, raw socket paths, raw TCP endpoints, raw config values, payload fragments, headers, tokens, process command lines, or environment data.
 
 Runtime-driver matrix failures remain Kernel runtime-driver guard failures.
 
