@@ -27,7 +27,7 @@ use Coretsia\Foundation\Serialization\StableJsonDecoder;
 use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Driver\RuntimeDriverGuard;
+use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Communication\WorkerSocketServer;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Internal\TaskFactoryInternalInterface;
@@ -115,13 +115,13 @@ final class WorkerServiceFactory
     public function httpTaskFactory(
         ConfigRepositoryInterface $config,
         ModulePlan $modulePlan,
-        RuntimeDriverGuard $runtimeDriverGuard,
+        RuntimeEntrypointGuard $runtimeEntrypointGuard,
         ContainerInterface $container,
     ): HttpTaskFactory {
         return new HttpTaskFactory(
             config: $config,
             modulePlan: $modulePlan,
-            runtimeDriverGuard: $runtimeDriverGuard,
+            runtimeEntrypointGuard: $runtimeEntrypointGuard,
             container: $container,
         );
     }

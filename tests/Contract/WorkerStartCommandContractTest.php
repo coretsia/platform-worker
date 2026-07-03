@@ -27,7 +27,7 @@ use Coretsia\Contracts\Observability\Tracing\SpanInterface;
 use Coretsia\Contracts\Observability\Tracing\TracerPortInterface;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Driver\RuntimeDriverGuard;
+use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
@@ -54,7 +54,7 @@ final class WorkerStartCommandContractTest extends TestCase
         $command = new WorkerStartCommand(
             config: $config,
             modulePlan: self::emptyModulePlan(),
-            runtimeDriverGuard: new RuntimeDriverGuard(),
+            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
             factory: new WorkerServiceFactory(),
             managerFactory: static function () use (&$managerFactoryCalls, $driver): WorkerManager {
                 $managerFactoryCalls++;
@@ -117,7 +117,7 @@ final class WorkerStartCommandContractTest extends TestCase
     {
         $source = self::workerStartCommandSource();
 
-        $guardPosition = \strpos($source, '$this->assertRuntimeDriverCompatibility()');
+        $guardPosition = \strpos($source, '$this->assertRuntimeEntrypointAllowed()');
         $specPosition = \strpos($source, '$this->factory->workerPoolSpec($this->config)');
         $managerStartPosition = \strpos($source, '$this->manager()->start($spec)');
 
@@ -128,7 +128,7 @@ final class WorkerStartCommandContractTest extends TestCase
         self::assertLessThan(
             $specPosition,
             $guardPosition,
-            'RuntimeDriverGuard compatibility check must happen before WorkerServiceFactory::workerPoolSpec(...).',
+            'RuntimeEntrypointGuard compatibility check must happen before WorkerServiceFactory::workerPoolSpec(...).',
         );
 
         self::assertLessThan(
@@ -417,6 +417,53 @@ final class WorkerStartCommandContractTest extends TestCase
         self::assertStringNotContainsString('->tokens(', $source);
     }
 
+    public function testStartRejectsNonClassicHttpDriverEvenWhenWorkerTaskTypeIsQueueAndPlatformHttpIsMissing(): void
+    {
+        $driver = new WorkerStartRecordingDriver(state: self::startedState());
+        $managerFactoryCalls = 0;
+
+        $command = self::command(
+            config: new WorkerStartArrayConfigRepository(
+                self::workerConfig([
+                    'kernel' => [
+                        'runtime' => [
+                            'roadrunner' => [
+                                'enabled' => true,
+                            ],
+                        ],
+                    ],
+                    'worker' => [
+                        'task_type' => 'queue',
+                    ],
+                ]),
+            ),
+            modulePlan: self::emptyModulePlan(),
+            driver: $driver,
+            managerFactoryCalls: $managerFactoryCalls,
+        );
+
+        $output = new WorkerStartRecordingOutput();
+
+        $exitCode = $command->run(
+            input: new WorkerStartParsedInput(commandName: WorkerStartCommand::NAME),
+            output: $output,
+        );
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $driver->startCalls);
+
+        self::assertSame(
+            [
+                [
+                    'code' => 'CORETSIA_RUNTIME_DRIVER_MATRIX_INVALID_CONFIG',
+                    'message' => 'requires-platform-http-module',
+                ],
+            ],
+            $output->errors,
+        );
+    }
+
     /**
      * @param int $managerFactoryCalls
      */
@@ -429,7 +476,7 @@ final class WorkerStartCommandContractTest extends TestCase
         return new WorkerStartCommand(
             config: $config,
             modulePlan: $modulePlan,
-            runtimeDriverGuard: new RuntimeDriverGuard(),
+            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
             factory: new WorkerServiceFactory(),
             managerFactory: static function () use (&$managerFactoryCalls, $driver): WorkerManager {
                 $managerFactoryCalls++;

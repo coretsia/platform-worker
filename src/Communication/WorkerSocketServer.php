@@ -41,7 +41,7 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
  *
  * Public failures are deterministic and safe. They all collapse to:
  *
- *     CORETSIA_WORKER_COMMUNICATION_FAILED: communication_failed
+ *     CORETSIA_WORKER_COMMUNICATION_FAILED: worker-communication-failed
  *
  * No exception message emitted here contains socket paths, TCP hosts/ports,
  * endpoint identifiers, absolute paths, OS error text, payload fragments,

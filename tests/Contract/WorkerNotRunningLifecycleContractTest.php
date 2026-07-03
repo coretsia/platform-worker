@@ -78,8 +78,8 @@ final class WorkerNotRunningLifecycleContractTest extends TestCase
         $exception = WorkerNotRunningException::notRunning();
 
         self::assertSame('CORETSIA_WORKER_NOT_RUNNING', $exception->errorCode());
-        self::assertSame('not_running', $exception->reason());
-        self::assertSame('CORETSIA_WORKER_NOT_RUNNING: not_running', $exception->getMessage());
+        self::assertSame('worker-not-running', $exception->reason());
+        self::assertSame('CORETSIA_WORKER_NOT_RUNNING: worker-not-running', $exception->getMessage());
         self::assertNull($exception->getPrevious());
     }
 
@@ -402,16 +402,16 @@ final class WorkerNotRunningLifecycleContractTest extends TestCase
     private static function assertNotRunningException(WorkerNotRunningException $exception): void
     {
         self::assertSame('CORETSIA_WORKER_NOT_RUNNING', $exception->errorCode());
-        self::assertSame('not_running', $exception->reason());
-        self::assertSame('CORETSIA_WORKER_NOT_RUNNING: not_running', $exception->getMessage());
+        self::assertSame('worker-not-running', $exception->reason());
+        self::assertSame('CORETSIA_WORKER_NOT_RUNNING: worker-not-running', $exception->getMessage());
         self::assertNull($exception->getPrevious());
     }
 
     private static function assertInvalidStateException(WorkerStartFailedException $exception): void
     {
         self::assertSame('CORETSIA_WORKER_START_FAILED', $exception->errorCode());
-        self::assertSame('invalid_state', $exception->reason());
-        self::assertSame('CORETSIA_WORKER_START_FAILED: invalid_state', $exception->getMessage());
+        self::assertSame('worker-invalid-state', $exception->reason());
+        self::assertSame('CORETSIA_WORKER_START_FAILED: worker-invalid-state', $exception->getMessage());
         self::assertNull($exception->getPrevious());
     }
 

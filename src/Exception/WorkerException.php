@@ -24,9 +24,11 @@ namespace Coretsia\Platform\Worker\Exception;
  * This is the base class for package-level `platform/worker` failures.
  *
  * Public exception messages are intentionally stable and safe. They contain
- * only the package error code and a stable reason token:
+ * only the package error code and a package-scoped stable reason token:
  *
- *     CORETSIA_WORKER_*: reason_token
+ * CORETSIA_WORKER_*: worker-reason-token
+ *
+ * Worker reason tokens are kebab-case and MUST start with `worker-`.
  *
  * Messages MUST NOT include absolute paths, raw socket paths, raw TCP
  * endpoints, raw config values, task payloads, headers, tokens, stack traces,
@@ -38,7 +40,7 @@ namespace Coretsia\Platform\Worker\Exception;
 abstract class WorkerException extends \RuntimeException
 {
     private const string ERROR_CODE_PATTERN = '/\ACORETSIA_WORKER_[A-Z0-9_]+\z/';
-    private const string REASON_PATTERN = '/\A[a-z][a-z0-9_]*\z/';
+    private const string REASON_PATTERN = '/\Aworker-[a-z0-9]+(?:-[a-z0-9]+)*\z/';
 
     protected function __construct(
         private readonly string $workerErrorCode,

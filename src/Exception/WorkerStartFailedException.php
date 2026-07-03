@@ -28,7 +28,7 @@ namespace Coretsia\Platform\Worker\Exception;
  *
  * The public message contains only:
  *
- *     CORETSIA_WORKER_START_FAILED: reason_token
+ *     CORETSIA_WORKER_START_FAILED: worker-reason-token
  *
  * It MUST NOT expose raw config values, absolute paths, raw socket paths, raw
  * TCP endpoints, request payloads, headers, tokens, process command lines,
@@ -39,11 +39,11 @@ final class WorkerStartFailedException extends WorkerException
 {
     public const string ERROR_CODE = 'CORETSIA_WORKER_START_FAILED';
 
-    public const string REASON_START_FAILED = 'start_failed';
-    public const string REASON_INVALID_STATE = 'invalid_state';
-    public const string REASON_REQUEST_HANDLER_MISSING = 'request_handler_missing';
-    public const string REASON_REQUEST_HANDLER_UNRESOLVABLE = 'request_handler_unresolvable';
-    public const string REASON_REQUEST_HANDLER_INVALID = 'request_handler_invalid';
+    public const string REASON_START_FAILED = 'worker-start-failed';
+    public const string REASON_INVALID_STATE = 'worker-invalid-state';
+    public const string REASON_REQUEST_HANDLER_MISSING = 'worker-request-handler-missing';
+    public const string REASON_REQUEST_HANDLER_UNRESOLVABLE = 'worker-request-handler-unresolvable';
+    public const string REASON_REQUEST_HANDLER_INVALID = 'worker-request-handler-invalid';
 
     /**
      * @var array<string, true>

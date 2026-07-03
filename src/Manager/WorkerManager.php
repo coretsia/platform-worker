@@ -48,8 +48,8 @@ use Psr\Log\LoggerInterface;
  * belong to process drivers and dedicated runtime/storage/control
  * collaborators.
  *
- * Runtime-driver compatibility is intentionally not enforced here.
- * WorkerStartCommand must invoke RuntimeDriverGuard before manager start.
+ * Runtime entrypoint compatibility is intentionally not enforced here.
+ * WorkerStartCommand must invoke RuntimeEntrypointGuard before manager start.
  *
  * Task execution is intentionally not owned here. Individual task execution
  * belongs to ApplicationWorker and KernelRuntimeInterface.

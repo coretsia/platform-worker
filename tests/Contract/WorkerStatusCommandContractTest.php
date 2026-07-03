@@ -136,7 +136,7 @@ final class WorkerStatusCommandContractTest extends TestCase
             [
                 [
                     'code' => 'CORETSIA_WORKER_NOT_RUNNING',
-                    'message' => 'not_running',
+                    'message' => 'worker-not-running',
                 ],
             ],
             $output->errors,

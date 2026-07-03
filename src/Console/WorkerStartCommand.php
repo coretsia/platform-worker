@@ -23,7 +23,7 @@ use Coretsia\Contracts\Cli\Input\InputInterface;
 use Coretsia\Contracts\Cli\Output\OutputInterface;
 use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Driver\RuntimeDriverGuard;
+use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Manager\WorkerManager;
@@ -41,14 +41,14 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
  * - it does not depend on platform/cli;
  * - it does not require full binary/catalog dispatch.
  *
- * Runtime-driver compatibility is checked after an explicit disabled-worker
+ * Runtime entrypoint compatibility is checked after an explicit disabled-worker
  * short-circuit and before WorkerManager::start(). WorkerManager is resolved
  * lazily so resolving this command from the container cannot construct process
  * drivers, ApplicationWorker, TaskFactoryInternalInterface, or WorkerPoolSpec
  * before the command run path has enforced the required ordering.
  *
- * Guard failures are surfaced using the original RuntimeDriverGuard error code
- * and reason token, not translated into worker-specific conflict codes.
+ * Guard failures are surfaced using the original runtime driver matrix error
+ * code and reason token, not translated into worker-specific conflict codes.
  *
  * This class must not:
  *
@@ -93,7 +93,7 @@ final readonly class WorkerStartCommand implements CommandInterface
     public function __construct(
         private ConfigRepositoryInterface $config,
         private ModulePlan $modulePlan,
-        private RuntimeDriverGuard $runtimeDriverGuard,
+        private RuntimeEntrypointGuard $runtimeEntrypointGuard,
         private WorkerServiceFactory $factory,
         private \Closure $managerFactory,
     ) {
@@ -120,7 +120,7 @@ final readonly class WorkerStartCommand implements CommandInterface
                 return self::EXIT_FAILURE;
             }
 
-            $this->assertRuntimeDriverCompatibility();
+            $this->assertRuntimeEntrypointAllowed();
 
             $spec = $this->factory->workerPoolSpec($this->config);
 
@@ -162,17 +162,11 @@ final readonly class WorkerStartCommand implements CommandInterface
         }
     }
 
-    private function assertRuntimeDriverCompatibility(): void
+    private function assertRuntimeEntrypointAllowed(): void
     {
-        $this->runtimeDriverGuard->assertCompatible($this->config);
-
-        if (!$this->workerHttpTaskModeRequested()) {
-            return;
-        }
-
-        $this->runtimeDriverGuard->assertHttpDriverCompatibleWithModules(
-            cfg: $this->config,
-            plan: $this->modulePlan,
+        $this->runtimeEntrypointGuard->assertEntrypointAllowed(
+            config: $this->config,
+            modulePlan: $this->modulePlan,
         );
     }
 
@@ -180,14 +174,6 @@ final readonly class WorkerStartCommand implements CommandInterface
     {
         return $this->config->has('worker.enabled')
             && $this->config->get('worker.enabled') === false;
-    }
-
-    private function workerHttpTaskModeRequested(): bool
-    {
-        return $this->config->has('worker.enabled')
-            && $this->config->get('worker.enabled') === true
-            && $this->config->has('worker.task_type')
-            && $this->config->get('worker.task_type') === 'http';
     }
 
     private function manager(): WorkerManager

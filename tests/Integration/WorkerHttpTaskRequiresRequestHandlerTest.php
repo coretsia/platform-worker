@@ -25,7 +25,7 @@ use Coretsia\Contracts\Config\ConfigValueSource;
 use Coretsia\Contracts\Module\ModuleId;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
-use Coretsia\Kernel\Runtime\Driver\RuntimeDriverGuard;
+use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
@@ -38,7 +38,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
 {
-    public function testWorkerStartCommandInvokesRuntimeDriverGuardWithoutPlatformCliCatalog(): void
+    public function testWorkerStartCommandInvokesRuntimeEntrypointGuardWithoutPlatformCliCatalog(): void
     {
         $config = self::configRepository(
             self::workerHttpConfig(),
@@ -51,7 +51,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $command = new WorkerStartCommand(
             config: $config,
             modulePlan: self::modulePlanWithoutPlatformHttp(),
-            runtimeDriverGuard: new RuntimeDriverGuard(),
+            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
             factory: new WorkerServiceFactory(),
             managerFactory: static function () use (&$managerFactoryCalled): never {
                 $managerFactoryCalled = true;
@@ -69,7 +69,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         );
         self::assertFalse(
             $managerFactoryCalled,
-            'WorkerManager factory MUST NOT be invoked when RuntimeDriverGuard rejects module compatibility.'
+            'WorkerManager factory MUST NOT be invoked when RuntimeEntrypointGuard rejects module compatibility.'
         );
 
         self::assertSame(
@@ -96,7 +96,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $factory = new HttpTaskFactory(
             config: $config,
             modulePlan: self::modulePlanWithPlatformHttp(),
-            runtimeDriverGuard: new RuntimeDriverGuard(),
+            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
             container: $container,
         );
 
@@ -107,7 +107,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         self::assertSame(WorkerStartFailedException::ERROR_CODE, $exception->errorCode());
         self::assertSame(WorkerStartFailedException::REASON_REQUEST_HANDLER_MISSING, $exception->reason());
         self::assertSame(
-            'CORETSIA_WORKER_START_FAILED: request_handler_missing',
+            'CORETSIA_WORKER_START_FAILED: worker-request-handler-missing',
             $exception->getMessage(),
         );
 
@@ -123,7 +123,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
                 'worker.task_type',
             ],
             $config->guardReadKeys(),
-            'RuntimeDriverGuard must run before RequestHandlerInterface resolution.',
+            'RuntimeEntrypointGuard must run before RequestHandlerInterface resolution.',
         );
     }
 
@@ -137,7 +137,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $factory = new HttpTaskFactory(
             config: $config,
             modulePlan: self::modulePlanWithPlatformHttp(),
-            runtimeDriverGuard: new RuntimeDriverGuard(),
+            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
             container: $container,
         );
 
@@ -148,7 +148,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         self::assertSame(WorkerStartFailedException::ERROR_CODE, $exception->errorCode());
         self::assertSame(WorkerStartFailedException::REASON_REQUEST_HANDLER_UNRESOLVABLE, $exception->reason());
         self::assertSame(
-            'CORETSIA_WORKER_START_FAILED: request_handler_unresolvable',
+            'CORETSIA_WORKER_START_FAILED: worker-request-handler-unresolvable',
             $exception->getMessage(),
         );
 
@@ -160,7 +160,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
     {
         $source = self::methodSource(HttpTaskFactory::class, 'create');
 
-        $guardOffset = \strpos($source, '$this->assertRuntimeDriverCompatibilityHasPassed();');
+        $guardOffset = \strpos($source, '$this->assertRuntimeEntrypointCompatibilityHasPassed();');
         $handlerOffset = \strpos($source, '$this->assertRequestHandlerResolvable();');
 
         self::assertIsInt($guardOffset);
@@ -168,7 +168,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         self::assertLessThan(
             $handlerOffset,
             $guardOffset,
-            'HttpTaskFactory::create() MUST run RuntimeDriverGuard/module compatibility before RequestHandlerInterface resolution.',
+            'HttpTaskFactory::create() MUST run RuntimeEntrypointGuard compatibility before RequestHandlerInterface resolution.',
         );
     }
 

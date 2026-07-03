@@ -26,7 +26,7 @@ namespace Coretsia\Platform\Worker\Exception;
  *
  * The public message contains only:
  *
- *     CORETSIA_WORKER_FORK_FAILED: fork_failed
+ *     CORETSIA_WORKER_FORK_FAILED: worker-fork-failed
  *
  * It MUST NOT expose process internals, OS error text, command lines, absolute
  * paths, raw socket paths, raw TCP endpoints, previous throwable messages, or
@@ -36,7 +36,7 @@ final class WorkerForkFailedException extends WorkerException
 {
     public const string ERROR_CODE = 'CORETSIA_WORKER_FORK_FAILED';
 
-    public const string REASON_FORK_FAILED = 'fork_failed';
+    public const string REASON_FORK_FAILED = 'worker-fork-failed';
 
     /**
      * @var array<string, true>

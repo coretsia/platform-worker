@@ -17,7 +17,12 @@ declare(strict_types=1);
  * See LICENSE and NOTICE in the project root for full license information.
  */
 
+use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Boot\ArtifactRuntimeBooter;
+use Coretsia\Kernel\Module\ModulePlan;
+use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
+use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Worker\ApplicationWorker;
 use Psr\Container\ContainerInterface;
@@ -347,6 +352,31 @@ function coretsia_worker_child_service(ContainerInterface $container, string $id
     return $service;
 }
 
+function coretsia_worker_child_assert_runtime_entrypoint_allowed(ContainerInterface $container): void
+{
+    try {
+        /** @var RuntimeEntrypointGuard $guard */
+        $guard = coretsia_worker_child_service($container, RuntimeEntrypointGuard::class);
+
+        /** @var ConfigRepositoryInterface $config */
+        $config = coretsia_worker_child_service($container, ConfigRepositoryInterface::class);
+
+        /** @var ModulePlan $modulePlan */
+        $modulePlan = coretsia_worker_child_service($container, ModulePlan::class);
+
+        $guard->assertEntrypointAllowed(
+            config: $config,
+            modulePlan: $modulePlan,
+        );
+    } catch (RuntimeDriverConflictException|RuntimeDriverInvalidConfigException) {
+        coretsia_worker_child_throw('runtime-driver-incompatible');
+    } catch (CoretsiaWorkerChildBootFailure $exception) {
+        throw $exception;
+    } catch (\Throwable) {
+        coretsia_worker_child_throw('runtime-entrypoint-guard-failed');
+    }
+}
+
 /**
  * @param array{
  *     index: int,
@@ -403,6 +433,8 @@ try {
         configArtifactPath: $configArtifactPath,
         containerArtifactPath: $containerArtifactPath,
     );
+
+    coretsia_worker_child_assert_runtime_entrypoint_allowed($container);
 
     /** @var WorkerPoolSpec $spec */
     $spec = coretsia_worker_child_service($container, WorkerPoolSpec::class);

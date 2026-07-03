@@ -27,7 +27,7 @@ namespace Coretsia\Platform\Worker\Exception;
  *
  * The public message contains only:
  *
- *     CORETSIA_WORKER_NOT_RUNNING: not_running
+ *     CORETSIA_WORKER_NOT_RUNNING: worker-not-running
  *
  * It MUST NOT expose pid paths, state paths, socket paths, TCP endpoints,
  * absolute paths, payload fragments, headers, tokens, OS error text, previous
@@ -37,7 +37,7 @@ final class WorkerNotRunningException extends WorkerException
 {
     public const string ERROR_CODE = 'CORETSIA_WORKER_NOT_RUNNING';
 
-    public const string REASON_NOT_RUNNING = 'not_running';
+    public const string REASON_NOT_RUNNING = 'worker-not-running';
 
     /**
      * @var array<string, true>

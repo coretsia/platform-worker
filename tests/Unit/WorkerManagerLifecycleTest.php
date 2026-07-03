@@ -141,7 +141,7 @@ final class WorkerManagerLifecycleTest extends TestCase
         self::assertSame(WorkerStartFailedException::ERROR_CODE, $exception->errorCode());
         self::assertSame(WorkerStartFailedException::REASON_START_FAILED, $exception->reason());
         self::assertSame(
-            'CORETSIA_WORKER_START_FAILED: start_failed',
+            'CORETSIA_WORKER_START_FAILED: worker-start-failed',
             $exception->getMessage(),
         );
     }
@@ -205,7 +205,7 @@ final class WorkerManagerLifecycleTest extends TestCase
 
         self::assertSame(WorkerStartFailedException::ERROR_CODE, $exception->errorCode());
         self::assertSame(WorkerStartFailedException::REASON_START_FAILED, $exception->reason());
-        self::assertSame('CORETSIA_WORKER_START_FAILED: start_failed', $exception->getMessage());
+        self::assertSame('CORETSIA_WORKER_START_FAILED: worker-start-failed', $exception->getMessage());
         self::assertStringNotContainsString('unknown throwable leaked', $exception->getMessage());
     }
 

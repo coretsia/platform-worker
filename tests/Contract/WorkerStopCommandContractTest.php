@@ -155,7 +155,7 @@ final class WorkerStopCommandContractTest extends TestCase
             [
                 [
                     'code' => 'CORETSIA_WORKER_NOT_RUNNING',
-                    'message' => 'not_running',
+                    'message' => 'worker-not-running',
                 ],
             ],
             $output->errors,
@@ -181,7 +181,7 @@ final class WorkerStopCommandContractTest extends TestCase
         );
 
         self::assertNotSame('CORETSIA_WORKER_NOT_RUNNING', $output->errors[0]['code']);
-        self::assertNotSame('not_running', $output->errors[0]['message']);
+        self::assertNotSame('worker-not-running', $output->errors[0]['message']);
     }
 
     public function testInvalidCommandNameFailsSafely(): void

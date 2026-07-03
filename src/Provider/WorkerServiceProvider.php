@@ -33,7 +33,7 @@ use Coretsia\Foundation\Tag\ReservedTags;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Kernel\Boot\BootstrapConfig;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Driver\RuntimeDriverGuard;
+use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Communication\WorkerSocketServer;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Console\WorkerStatusCommand;
@@ -81,7 +81,7 @@ use Psr\Log\LoggerInterface;
  * command service must not resolve WorkerManager, process drivers,
  * ApplicationWorker, TaskFactoryInternalInterface, or WorkerPoolSpec before the
  * command run path has checked the disabled-worker short-circuit and enforced
- * RuntimeDriverGuard ordering.
+ * RuntimeEntrypointGuard ordering.
  *
  * Process drivers and WorkerManager are registered as factory-only bindings.
  * ProcWorkerManagerDriver receives its worker command argv vector only from the
@@ -91,7 +91,7 @@ use Psr\Log\LoggerInterface;
  * This provider must not:
  *
  * - inspect runtime-driver compatibility;
- * - call RuntimeDriverGuard;
+ * - call RuntimeEntrypointGuard;
  * - resolve ModulePlan during provider registration;
  * - run WorkerPoolSpec normalization during provider registration;
  * - start worker processes;
@@ -144,7 +144,7 @@ final class WorkerServiceProvider implements ServiceProviderInterface
             static fn (Container $container): HttpTaskFactory => $factory->httpTaskFactory(
                 config: self::service($container, ConfigRepositoryInterface::class),
                 modulePlan: self::service($container, ModulePlan::class),
-                runtimeDriverGuard: self::service($container, RuntimeDriverGuard::class),
+                runtimeEntrypointGuard: self::service($container, RuntimeEntrypointGuard::class),
                 container: $container,
             ),
         );
@@ -216,7 +216,7 @@ final class WorkerServiceProvider implements ServiceProviderInterface
             static fn (Container $container): WorkerStartCommand => new WorkerStartCommand(
                 config: self::service($container, ConfigRepositoryInterface::class),
                 modulePlan: self::service($container, ModulePlan::class),
-                runtimeDriverGuard: self::service($container, RuntimeDriverGuard::class),
+                runtimeEntrypointGuard: self::service($container, RuntimeEntrypointGuard::class),
                 factory: $factory,
                 managerFactory: static fn (): WorkerManager => self::service($container, WorkerManager::class),
             ),

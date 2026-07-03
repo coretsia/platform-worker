@@ -26,7 +26,7 @@ namespace Coretsia\Platform\Worker\Exception;
  *
  * The public message contains only:
  *
- *     CORETSIA_WORKER_COMMUNICATION_FAILED: communication_failed
+ *     CORETSIA_WORKER_COMMUNICATION_FAILED: worker-communication-failed
  *
  * It MUST NOT expose raw socket paths, raw TCP host/port, absolute paths,
  * payload fragments, headers, tokens, OS error text, previous throwable
@@ -36,7 +36,7 @@ final class WorkerCommunicationFailedException extends WorkerException
 {
     public const string ERROR_CODE = 'CORETSIA_WORKER_COMMUNICATION_FAILED';
 
-    public const string REASON_COMMUNICATION_FAILED = 'communication_failed';
+    public const string REASON_COMMUNICATION_FAILED = 'worker-communication-failed';
 
     /**
      * @var array<string, true>

@@ -432,9 +432,9 @@ Psr\Http\Server\RequestHandlerInterface
 Request-handler preflight failures use deterministic worker start reasons:
 
 ```text
-request_handler_missing
-request_handler_unresolvable
-request_handler_invalid
+worker-request-handler-missing
+worker-request-handler-unresolvable
+worker-request-handler-invalid
 ```
 
 ## State files
@@ -591,20 +591,20 @@ WorkerNotRunningException
 Public worker exception messages have the canonical form:
 
 ```text
-CORETSIA_WORKER_*: reason_token
+CORETSIA_WORKER_*: worker-reason-token
 ```
 
 Examples:
 
 ```text
-CORETSIA_WORKER_START_FAILED: start_failed
-CORETSIA_WORKER_START_FAILED: invalid_state
-CORETSIA_WORKER_START_FAILED: request_handler_missing
-CORETSIA_WORKER_START_FAILED: request_handler_unresolvable
-CORETSIA_WORKER_START_FAILED: request_handler_invalid
-CORETSIA_WORKER_FORK_FAILED: fork_failed
-CORETSIA_WORKER_COMMUNICATION_FAILED: communication_failed
-CORETSIA_WORKER_NOT_RUNNING: not_running
+CORETSIA_WORKER_START_FAILED: worker-start-failed
+CORETSIA_WORKER_START_FAILED: worker-invalid-state
+CORETSIA_WORKER_START_FAILED: worker-request-handler-missing
+CORETSIA_WORKER_START_FAILED: worker-request-handler-unresolvable
+CORETSIA_WORKER_START_FAILED: worker-request-handler-invalid
+CORETSIA_WORKER_FORK_FAILED: worker-fork-failed
+CORETSIA_WORKER_COMMUNICATION_FAILED: worker-communication-failed
+CORETSIA_WORKER_NOT_RUNNING: worker-not-running
 ```
 
 Worker exception messages MUST NOT include previous throwable messages, stack traces, absolute paths, raw socket paths, raw TCP endpoints, raw config values, payload fragments, headers, tokens, process command lines, or environment data.
