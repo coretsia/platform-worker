@@ -29,7 +29,8 @@ declare(strict_types=1);
  *
  * Baseline invariants:
  * - the `worker` root is owned by `platform/worker`;
- * - worker runtime is opt-in and disabled by default;
+ * - module participation is owned by mode presets and ModulePlan;
+ * - starting a worker pool is an explicit command action;
  * - queue task mode is the safe default task type;
  * - process/control paths are skeleton-root-relative runtime paths;
  * - path defaults MUST remain relative and MUST NOT contain a `skeleton/`
@@ -46,14 +47,6 @@ declare(strict_types=1);
  * - keys beginning with `@` are reserved and rejected by config rules.
  */
 return [
-    /*
-     * Worker runtime enablement.
-     *
-     * Disabled by default so installing the package does not implicitly activate
-     * a long-running runtime mode.
-     */
-    'enabled' => false,
-
     /*
      * Worker pool size.
      *

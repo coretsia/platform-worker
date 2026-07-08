@@ -43,7 +43,6 @@ final class WorkerConfigSubtreeShapeContractTest extends TestCase
 
         self::assertSame(
             [
-                'enabled',
                 'workers',
                 'max_requests',
                 'task_type',

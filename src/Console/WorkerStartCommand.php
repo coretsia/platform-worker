@@ -41,11 +41,10 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
  * - it does not depend on platform/cli;
  * - it does not require full binary/catalog dispatch.
  *
- * Runtime entrypoint compatibility is checked after an explicit disabled-worker
- * short-circuit and before WorkerManager::start(). WorkerManager is resolved
- * lazily so resolving this command from the container cannot construct process
- * drivers, ApplicationWorker, TaskFactoryInternalInterface, or WorkerPoolSpec
- * before the command run path has enforced the required ordering.
+ * Runtime entrypoint compatibility is checked before WorkerManager::start().
+ * WorkerManager is resolved lazily so resolving this command from the container
+ * cannot construct process drivers, ApplicationWorker, TaskFactoryInternalInterface,
+ * or WorkerPoolSpec before the command run path has enforced the required ordering.
  *
  * Guard failures are surfaced using the original runtime driver matrix error
  * code and reason token, not translated into worker-specific conflict codes.
@@ -84,8 +83,8 @@ final readonly class WorkerStartCommand implements CommandInterface
     private const int EXIT_FAILURE = 1;
 
     private const string ERROR_CODE_WORKER_COMMAND_INVALID = 'CORETSIA_WORKER_COMMAND_INVALID';
-    private const string ERROR_CODE_WORKER_DISABLED = 'CORETSIA_WORKER_DISABLED';
     private const string ERROR_CODE_WORKER_START_FAILED = 'CORETSIA_WORKER_START_FAILED';
+    private const string MODULE_PLATFORM_WORKER = 'platform.worker';
 
     /**
      * @param \Closure(): WorkerManager $managerFactory
@@ -111,28 +110,9 @@ final readonly class WorkerStartCommand implements CommandInterface
         }
 
         try {
-            if ($this->workerExplicitlyDisabled()) {
-                $output->error(
-                    self::ERROR_CODE_WORKER_DISABLED,
-                    'worker-disabled',
-                );
-
-                return self::EXIT_FAILURE;
-            }
-
             $this->assertRuntimeEntrypointAllowed();
 
             $spec = $this->factory->workerPoolSpec($this->config);
-
-            if (!$spec->enabled()) {
-                $output->error(
-                    self::ERROR_CODE_WORKER_DISABLED,
-                    'worker-disabled',
-                );
-
-                return self::EXIT_FAILURE;
-            }
-
             $state = $this->manager()->start($spec);
 
             $output->json(self::startSummary($state));
@@ -164,16 +144,14 @@ final readonly class WorkerStartCommand implements CommandInterface
 
     private function assertRuntimeEntrypointAllowed(): void
     {
+        if (!$this->modulePlan->hasEnabledModule(self::MODULE_PLATFORM_WORKER)) {
+            throw RuntimeDriverInvalidConfigException::requiresPlatformWorkerModule();
+        }
+
         $this->runtimeEntrypointGuard->assertEntrypointAllowed(
             config: $this->config,
             modulePlan: $this->modulePlan,
         );
-    }
-
-    private function workerExplicitlyDisabled(): bool
-    {
-        return $this->config->has('worker.enabled')
-            && $this->config->get('worker.enabled') === false;
     }
 
     private function manager(): WorkerManager

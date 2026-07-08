@@ -205,7 +205,6 @@ Baseline defaults include:
 
 ```php
 [
-    'enabled' => false,
     'workers' => 4,
     'max_requests' => 1000,
     'task_type' => 'queue',
@@ -232,7 +231,7 @@ Baseline defaults include:
 
 Important config rules:
 
-- `worker.enabled=false` by default.
+- `worker.task_type=queue` by default.
 - `worker.workers` must be a positive integer.
 - `worker.max_requests` must be a positive integer.
 - `worker.task_type` is `queue` or `http`.
@@ -326,23 +325,25 @@ Raw socket paths, raw TCP endpoints, config values, payloads, headers, tokens, a
 
 Runtime-driver compatibility is Kernel-owned policy.
 
-The canonical guard is:
+The public runtime entrypoint guard is:
 
 ```text
-Coretsia\Kernel\Runtime\Driver\RuntimeDriverGuard
+Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard
 ```
 
-`WorkerStartCommand` must invoke the guard before starting the worker pool.
+`WorkerStartCommand` must invoke the runtime entrypoint guard before starting the worker pool.
 
-When `worker.task_type=http`, `WorkerStartCommand` must also invoke:
+The command must call:
 
 ```text
-RuntimeDriverGuard::assertHttpDriverCompatibleWithModules(...)
+RuntimeEntrypointGuard::assertEntrypointAllowed(...)
 ```
 
-with the caller-provided `ModulePlan`.
+with the resolved config repository and caller-provided `ModulePlan`.
 
-Missing `platform.http` for HTTP worker mode must fail through `RuntimeDriverGuard` before request-handler resolution.
+Missing `platform.http` for HTTP worker mode must fail through the Kernel runtime entrypoint guard before request-handler resolution.
+
+`RuntimeDriverGuard` remains a Kernel-internal implementation detail behind `RuntimeEntrypointGuard`.
 
 The worker package MUST NOT duplicate runtime-driver matrix logic.
 

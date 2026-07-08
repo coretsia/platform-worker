@@ -23,7 +23,6 @@ declare(strict_types=1);
  * - the file validates the `worker` root subtree;
  * - unknown keys are rejected at every declared map level;
  * - reserved `@*` keys are rejected by the same strict-shape policy;
- * - worker runtime enablement must be explicit and boolean;
  * - worker process counts and request limits must be positive integers;
  * - task type is limited to `queue` or `http`;
  * - process driver selection is limited to `auto`, `pcntl`, or `proc`;
@@ -39,7 +38,7 @@ declare(strict_types=1);
  *
  * The defaults file must return the subtree only:
  *
- *     config/worker.php => ['enabled' => false, 'workers' => 4, ...]
+ *     config/worker.php => ['workers' => 4, 'task_type' => 'queue', ...]
  *
  * It must not return:
  *
@@ -50,10 +49,6 @@ return [
     'configRoot' => 'worker',
     'additionalKeys' => false,
     'keys' => [
-        'enabled' => [
-            'required' => true,
-            'type' => 'bool',
-        ],
         'workers' => [
             'required' => true,
             'type' => 'int',

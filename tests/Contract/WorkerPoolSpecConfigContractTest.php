@@ -134,7 +134,6 @@ final class WorkerPoolSpecConfigContractTest extends TestCase
     {
         foreach (
             [
-                ['enabled' => 1.0],
                 ['workers' => 4.0],
                 ['max_requests' => 1000.0],
                 ['task_type' => 1.0],
@@ -158,7 +157,6 @@ final class WorkerPoolSpecConfigContractTest extends TestCase
 
         self::assertSame(
             [
-                'enabled' => false,
                 'workers' => 4,
                 'max_requests' => 1000,
                 'task_type' => 'queue',
@@ -191,7 +189,6 @@ final class WorkerPoolSpecConfigContractTest extends TestCase
             unixDomainSocketsSupported: false,
         );
 
-        self::assertFalse($spec->enabled());
         self::assertSame(4, $spec->workers());
         self::assertSame(1000, $spec->maxRequests());
         self::assertSame('queue', $spec->taskType());
@@ -426,7 +423,6 @@ final class WorkerPoolSpecConfigContractTest extends TestCase
     {
         return \array_replace_recursive(
             [
-                'enabled' => true,
                 'workers' => 4,
                 'max_requests' => 1000,
                 'task_type' => 'queue',

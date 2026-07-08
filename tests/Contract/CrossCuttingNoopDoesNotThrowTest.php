@@ -142,7 +142,8 @@ final class CrossCuttingNoopDoesNotThrowTest extends TestCase
             'config/worker.php MUST NOT repeat the root key ("worker").',
         );
 
-        self::assertSame(false, $workerSubtree['enabled'] ?? null);
+        self::assertArrayNotHasKey('enabled', $workerSubtree);
+        self::assertSame('queue', $workerSubtree['task_type'] ?? null);
         self::assertSame(4, $workerSubtree['workers'] ?? null);
         self::assertSame(1000, $workerSubtree['max_requests'] ?? null);
         self::assertSame('queue', $workerSubtree['task_type'] ?? null);
@@ -179,7 +180,6 @@ final class CrossCuttingNoopDoesNotThrowTest extends TestCase
 
         foreach (
             [
-                'enabled',
                 'workers',
                 'max_requests',
                 'task_type',
@@ -196,7 +196,6 @@ final class CrossCuttingNoopDoesNotThrowTest extends TestCase
             self::assertArrayHasKey($key, $rules['keys']);
         }
 
-        self::assertSame('bool', $rules['keys']['enabled']['type'] ?? null);
         self::assertSame('int', $rules['keys']['workers']['type'] ?? null);
         self::assertSame('int', $rules['keys']['max_requests']['type'] ?? null);
         self::assertSame(['http', 'queue'], $rules['keys']['task_type']['allowedValues'] ?? null);

@@ -80,8 +80,7 @@ use Psr\Log\LoggerInterface;
  * WorkerStartCommand receives WorkerManager through a lazy factory. Resolving the
  * command service must not resolve WorkerManager, process drivers,
  * ApplicationWorker, TaskFactoryInternalInterface, or WorkerPoolSpec before the
- * command run path has checked the disabled-worker short-circuit and enforced
- * RuntimeEntrypointGuard ordering.
+ * command run path has enforced RuntimeEntrypointGuard ordering.
  *
  * Process drivers and WorkerManager are registered as factory-only bindings.
  * ProcWorkerManagerDriver receives its worker command argv vector only from the

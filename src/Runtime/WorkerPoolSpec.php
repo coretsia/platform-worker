@@ -40,7 +40,6 @@ use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
  * public diagnostics, or exception messages.
  *
  * @phpstan-type WorkerConfig array{
- *     enabled: bool,
  *     workers: int,
  *     max_requests: int,
  *     task_type: 'http'|'queue',
@@ -67,7 +66,6 @@ final readonly class WorkerPoolSpec
     private const string CONTROL_TRANSPORT_TCP = 'tcp';
 
     private function __construct(
-        private bool $enabled,
         private int $workers,
         private int $maxRequests,
         private string $taskType,
@@ -102,7 +100,6 @@ final readonly class WorkerPoolSpec
         ?string $platformFamily = null,
         ?bool $unixDomainSocketsSupported = null,
     ): self {
-        $enabled = self::requiredBool($config, 'enabled');
         $workers = self::requiredPositiveInt($config, 'workers');
         $maxRequests = self::requiredPositiveInt($config, 'max_requests');
         $taskType = self::requiredString($config, 'task_type');
@@ -144,7 +141,6 @@ final readonly class WorkerPoolSpec
         );
 
         return new self(
-            enabled: $enabled,
             workers: $workers,
             maxRequests: $maxRequests,
             taskType: $taskType,
@@ -159,11 +155,6 @@ final readonly class WorkerPoolSpec
             stopFlagPath: $stopFlagPath,
             stopTimeoutMs: $stopTimeoutMs,
         );
-    }
-
-    public function enabled(): bool
-    {
-        return $this->enabled;
     }
 
     public function workers(): int
@@ -243,18 +234,6 @@ final readonly class WorkerPoolSpec
             self::CONTROL_TRANSPORT_TCP => 'tcp:' . $this->tcpHost . ':' . $this->tcpPort,
             default => throw WorkerStartFailedException::invalidState(),
         };
-    }
-
-    /**
-     * @param array<string, mixed> $config
-     */
-    private static function requiredBool(array $config, string $key): bool
-    {
-        if (!\array_key_exists($key, $config) || !\is_bool($config[$key])) {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        return $config[$key];
     }
 
     /**

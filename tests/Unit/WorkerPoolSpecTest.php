@@ -28,7 +28,6 @@ final class WorkerPoolSpecTest extends TestCase
     {
         $spec = self::specFromConfig(self::workerConfig());
 
-        self::assertTrue($spec->enabled());
         self::assertSame(2, $spec->workers());
         self::assertSame(100, $spec->maxRequests());
         self::assertSame('queue', $spec->taskType());
@@ -48,7 +47,6 @@ final class WorkerPoolSpecTest extends TestCase
     {
         foreach (
             [
-                'enabled',
                 'workers',
                 'max_requests',
                 'task_type',
@@ -94,7 +92,6 @@ final class WorkerPoolSpecTest extends TestCase
 
     public function testRejectsInvalidScalarTypesAndRanges(): void
     {
-        self::assertInvalidConfig(self::workerConfig(['enabled' => 'true']));
         self::assertInvalidConfig(self::workerConfig(['workers' => '2']));
         self::assertInvalidConfig(self::workerConfig(['workers' => 0]));
         self::assertInvalidConfig(self::workerConfig(['workers' => -1]));
@@ -456,7 +453,6 @@ final class WorkerPoolSpecTest extends TestCase
     {
         return \array_replace_recursive(
             [
-                'enabled' => true,
                 'workers' => 2,
                 'max_requests' => 100,
                 'task_type' => 'queue',

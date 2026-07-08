@@ -23,6 +23,7 @@ use Coretsia\Contracts\Observability\Metrics\MeterPortInterface;
 use Coretsia\Contracts\Observability\Tracing\SpanInterface;
 use Coretsia\Contracts\Observability\Tracing\TracerPortInterface;
 use Coretsia\Contracts\Runtime\KernelRuntimeInterface;
+use Coretsia\Contracts\Runtime\UnitOfWorkHandle;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Platform\Worker\Internal\TaskFactoryInternalInterface;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
@@ -394,13 +395,13 @@ final class MaxRequestsRecordingKernelRuntime implements KernelRuntimeInterface
         return $result;
     }
 
-    public function beginUnitOfWork(string $type, array $attributes = []): array
+    public function beginUnitOfWork(string $type, array $attributes = []): UnitOfWorkHandle
     {
         throw new \LogicException('ApplicationWorker must use runUnitOfWork().');
     }
 
     public function afterUnitOfWork(
-        array $context,
+        UnitOfWorkHandle $handle,
         string $outcome,
         ?Throwable $error = null,
         array $extensions = [],
