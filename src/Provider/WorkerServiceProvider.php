@@ -43,6 +43,7 @@ use Coretsia\Platform\Worker\Manager\Driver\PcntlWorkerManagerDriver;
 use Coretsia\Platform\Worker\Manager\Driver\ProcWorkerManagerDriver;
 use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Runtime\WorkerStateStore;
 use Coretsia\Platform\Worker\Task\HttpTaskFactory;
 use Coretsia\Platform\Worker\Task\QueueTaskFactory;
@@ -80,7 +81,7 @@ use Psr\Log\LoggerInterface;
  * WorkerStartCommand receives WorkerManager through a lazy factory. Resolving the
  * command service must not resolve WorkerManager, process drivers,
  * ApplicationWorker, TaskFactoryInternalInterface, or WorkerPoolSpec before the
- * command run path has enforced RuntimeEntrypointGuard ordering.
+ * command run path has enforced WorkerRuntimeEntrypointGuard ordering.
  *
  * Process drivers and WorkerManager are registered as factory-only bindings.
  * ProcWorkerManagerDriver receives its worker command argv vector only from the
@@ -90,7 +91,7 @@ use Psr\Log\LoggerInterface;
  * This provider must not:
  *
  * - inspect runtime-driver compatibility;
- * - call RuntimeEntrypointGuard;
+ * - call WorkerRuntimeEntrypointGuard or RuntimeEntrypointGuard;
  * - resolve ModulePlan during provider registration;
  * - run WorkerPoolSpec normalization during provider registration;
  * - start worker processes;
@@ -121,6 +122,16 @@ final class WorkerServiceProvider implements ServiceProviderInterface
         );
 
         $builder->factory(
+            WorkerRuntimeEntrypointGuard::class,
+            static fn (Container $container): WorkerRuntimeEntrypointGuard => $factory->workerRuntimeEntrypointGuard(
+                kernelEntrypointGuard: self::service(
+                    $container,
+                    RuntimeEntrypointGuard::class,
+                ),
+            ),
+        );
+
+        $builder->factory(
             WorkerStateStore::class,
             static fn (Container $container): WorkerStateStore => $factory->workerStateStore(
                 encoder: self::service($container, StableJsonEncoder::class),
@@ -143,7 +154,7 @@ final class WorkerServiceProvider implements ServiceProviderInterface
             static fn (Container $container): HttpTaskFactory => $factory->httpTaskFactory(
                 config: self::service($container, ConfigRepositoryInterface::class),
                 modulePlan: self::service($container, ModulePlan::class),
-                runtimeEntrypointGuard: self::service($container, RuntimeEntrypointGuard::class),
+                runtimeEntrypointGuard: self::service($container, WorkerRuntimeEntrypointGuard::class),
                 container: $container,
             ),
         );
@@ -215,7 +226,7 @@ final class WorkerServiceProvider implements ServiceProviderInterface
             static fn (Container $container): WorkerStartCommand => new WorkerStartCommand(
                 config: self::service($container, ConfigRepositoryInterface::class),
                 modulePlan: self::service($container, ModulePlan::class),
-                runtimeEntrypointGuard: self::service($container, RuntimeEntrypointGuard::class),
+                runtimeEntrypointGuard: self::service($container, WorkerRuntimeEntrypointGuard::class),
                 factory: $factory,
                 managerFactory: static fn (): WorkerManager => self::service($container, WorkerManager::class),
             ),
@@ -340,18 +351,26 @@ final class WorkerServiceProvider implements ServiceProviderInterface
         ];
     }
 
-    private static function configArtifactPath(BootstrapConfig $bootstrapConfig): string
-    {
+    private static function configArtifactPath(
+        BootstrapConfig $bootstrapConfig,
+    ): string {
         $appTarget = self::safeAppTarget($bootstrapConfig);
 
-        return 'var/cache/' . $appTarget . '/config.php';
+        return $bootstrapConfig->artifactsCacheDir()
+            . '/'
+            . $appTarget
+            . '/config.php';
     }
 
-    private static function containerArtifactPath(BootstrapConfig $bootstrapConfig): string
-    {
+    private static function containerArtifactPath(
+        BootstrapConfig $bootstrapConfig,
+    ): string {
         $appTarget = self::safeAppTarget($bootstrapConfig);
 
-        return 'var/cache/' . $appTarget . '/container.php';
+        return $bootstrapConfig->artifactsCacheDir()
+            . '/'
+            . $appTarget
+            . '/container.php';
     }
 
     private static function safeAppTarget(BootstrapConfig $bootstrapConfig): string

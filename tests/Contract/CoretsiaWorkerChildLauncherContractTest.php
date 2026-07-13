@@ -221,6 +221,82 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
         }
     }
 
+    public function testLauncherUsesWorkerRuntimeEntrypointBoundaryWithoutInternalImports(): void
+    {
+        $source = self::launcherSource();
+
+        self::assertStringContainsString(
+            'use Coretsia\\Platform\\Worker\\Runtime\\WorkerRuntimeEntrypointGuard;',
+            $source,
+        );
+
+        self::assertStringContainsString(
+            'WorkerRuntimeEntrypointGuard::class',
+            $source,
+        );
+
+        self::assertStringContainsString(
+            'spec: $spec',
+            $source,
+        );
+
+        self::assertStringNotContainsString(
+            'Coretsia\\Platform\\Worker\\Internal\\WorkerRuntimeDriverContributions',
+            $source,
+        );
+
+        self::assertStringNotContainsString(
+            'use Coretsia\\Kernel\\Runtime\\Entrypoint\\RuntimeEntrypointGuard;',
+            $source,
+        );
+
+        self::assertStringNotContainsString(
+            'WorkerRuntimeDriverContributions::fromSpec(',
+            $source,
+        );
+
+        self::assertStringNotContainsString(
+            'runtimeDriverContributions:',
+            $source,
+        );
+        self::assertStringContainsString(
+            'coretsia_worker_child_assert_runtime_entrypoint_allowed(',
+            $source,
+        );
+
+        $specOffset = \strpos(
+            $source,
+            '$spec = coretsia_worker_child_service($container, WorkerPoolSpec::class);',
+        );
+        $argsCheckOffset = \strpos(
+            $source,
+            'coretsia_worker_child_assert_args_match_spec($args, $spec);',
+        );
+        $guardOffset = \strpos(
+            $source,
+            'coretsia_worker_child_assert_runtime_entrypoint_allowed(',
+            $argsCheckOffset === false ? 0 : $argsCheckOffset,
+        );
+        $workerOffset = \strpos(
+            $source,
+            '$worker = coretsia_worker_child_service($container, ApplicationWorker::class);',
+        );
+
+        self::assertIsInt($specOffset);
+        self::assertIsInt($argsCheckOffset);
+        self::assertIsInt($guardOffset);
+        self::assertIsInt($workerOffset);
+
+        self::assertTrue(
+            $specOffset < $argsCheckOffset
+            && $argsCheckOffset < $guardOffset
+            && $guardOffset < $workerOffset,
+            'Worker child must resolve and validate WorkerPoolSpec, invoke the '
+            . 'Worker-owned runtime entrypoint boundary, and only then resolve '
+            . 'ApplicationWorker.',
+        );
+    }
+
     /**
      * @param list<string> $args
      *

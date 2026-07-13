@@ -16,9 +16,9 @@
 
 ## Status
 
-Coretsia Framework is in **active development** and does **not** provide a stable production release or long-term-supported release line yet.
+Coretsia Framework is in active development and DOES NOT provide a stable production release or long-term-supported release line yet.
 
-Until the first stable public release is published, security handling is performed on a **best-effort** basis for the default development branch.
+Until the first stable public release is published, security handling is performed on a best-effort basis for the default development branch.
 
 For implementation status and roadmap planning, see:
 
@@ -26,7 +26,7 @@ For implementation status and roadmap planning, see:
 
 ## Supported Versions
 
-At the moment, Coretsia does **not** provide long-term-supported stable release lines.
+At the moment, Coretsia DOES NOT provide long-term-supported stable release lines.
 
 | Version / line                                 | Supported | Notes                                                  |
 |------------------------------------------------|-----------|--------------------------------------------------------|
@@ -34,15 +34,15 @@ At the moment, Coretsia does **not** provide long-term-supported stable release 
 | Tagged 0.x development snapshots               | No        | Development milestones, not stable support lines       |
 | Any older commit / fork / unpublished snapshot | No        | Upgrade to the current default branch before reporting |
 
-\* "Supported" here means vulnerability reports are reviewed and may be fixed in the active development branch. It does **not** mean a stable security SLA is available.
+\* "Supported" here means vulnerability reports are reviewed and may be fixed in the active development branch. It DOES NOT mean a stable security SLA is available.
 
 ## Reporting a Vulnerability
 
-Please **do not** open public GitHub issues for suspected security vulnerabilities.
+Please DO NOT open public GitHub issues for suspected security vulnerabilities.
 
 Report vulnerabilities privately to:
 
-- **team@coretsia.dev**
+- team@coretsia.dev
 
 Include, when possible:
 
@@ -62,7 +62,7 @@ For valid reports, the project will generally try to:
 3. prepare a fix on the active development branch;
 4. publish the fix in the appropriate public commit or release note when ready.
 
-Response and remediation timing is **not guaranteed** at this stage of the project.
+Response and remediation timing is not guaranteed at this stage of the project.
 
 ## Scope Guidance
 
@@ -75,7 +75,7 @@ Security reports are especially helpful for issues involving:
 - dependency or supply-chain risks in shipped runtime/tooling code
 - sandbox or boundary violations that break documented invariants
 
-The following are usually **out of scope** unless they lead to a concrete exploitable weakness:
+The following are usually out of scope unless they lead to a concrete exploitable weakness:
 
 - purely theoretical concerns without a reproducible impact
 - issues in unsupported historical snapshots

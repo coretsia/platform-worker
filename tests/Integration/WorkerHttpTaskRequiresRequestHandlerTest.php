@@ -31,6 +31,7 @@ use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Task\HttpTaskFactory;
 use PHPUnit\Framework\TestCase;
 use Psr\Container\ContainerInterface;
@@ -38,7 +39,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 
 final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
 {
-    public function testWorkerStartCommandInvokesRuntimeEntrypointGuardWithoutPlatformCliCatalog(): void
+    public function testWorkerStartCommandInvokesWorkerRuntimeEntrypointGuardWithoutPlatformCliCatalog(): void
     {
         $config = self::configRepository(
             self::workerHttpConfig(),
@@ -51,7 +52,9 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $command = new WorkerStartCommand(
             config: $config,
             modulePlan: self::modulePlanWithoutPlatformHttp(),
-            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
+            runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
+                kernelEntrypointGuard: new RuntimeEntrypointGuard(),
+            ),
             factory: new WorkerServiceFactory(),
             managerFactory: static function () use (&$managerFactoryCalled): never {
                 $managerFactoryCalled = true;
@@ -69,7 +72,8 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         );
         self::assertFalse(
             $managerFactoryCalled,
-            'WorkerManager factory MUST NOT be invoked when RuntimeEntrypointGuard rejects module compatibility.'
+            'WorkerManager factory MUST NOT be invoked when '
+            . 'WorkerRuntimeEntrypointGuard rejects module compatibility.'
         );
 
         self::assertSame(
@@ -96,7 +100,9 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $factory = new HttpTaskFactory(
             config: $config,
             modulePlan: self::modulePlanWithPlatformHttp(),
-            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
+            runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
+                kernelEntrypointGuard: new RuntimeEntrypointGuard(),
+            ),
             container: $container,
         );
 
@@ -117,10 +123,9 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         self::assertSame(
             [
                 'kernel.runtime.http_driver',
-                'worker.task_type',
             ],
             $config->guardReadKeys(),
-            'RuntimeEntrypointGuard must run before RequestHandlerInterface resolution.',
+            'WorkerRuntimeEntrypointGuard must run before RequestHandlerInterface resolution.',
         );
     }
 
@@ -134,7 +139,9 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $factory = new HttpTaskFactory(
             config: $config,
             modulePlan: self::modulePlanWithPlatformHttp(),
-            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
+            runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
+                kernelEntrypointGuard: new RuntimeEntrypointGuard(),
+            ),
             container: $container,
         );
 
@@ -157,7 +164,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
     {
         $source = self::methodSource(HttpTaskFactory::class, 'create');
 
-        $guardOffset = \strpos($source, '$this->assertRuntimeEntrypointCompatibilityHasPassed();');
+        $guardOffset = \strpos($source, '$this->assertRuntimeEntrypointCompatibilityHasPassed($spec);');
         $handlerOffset = \strpos($source, '$this->assertRequestHandlerResolvable();');
 
         self::assertIsInt($guardOffset);
@@ -165,7 +172,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         self::assertLessThan(
             $handlerOffset,
             $guardOffset,
-            'HttpTaskFactory::create() MUST run RuntimeEntrypointGuard compatibility before RequestHandlerInterface resolution.',
+            'HttpTaskFactory::create() MUST run WorkerRuntimeEntrypointGuard compatibility before RequestHandlerInterface resolution.',
         );
     }
 

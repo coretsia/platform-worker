@@ -35,6 +35,7 @@ use Coretsia\Platform\Worker\Manager\Driver\PcntlWorkerManagerDriver;
 use Coretsia\Platform\Worker\Manager\Driver\ProcWorkerManagerDriver;
 use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Runtime\WorkerStateStore;
 use Coretsia\Platform\Worker\Task\HttpTaskFactory;
 use Coretsia\Platform\Worker\Task\QueueTaskFactory;
@@ -92,6 +93,14 @@ final class WorkerServiceFactory
         );
     }
 
+    public function workerRuntimeEntrypointGuard(
+        RuntimeEntrypointGuard $kernelEntrypointGuard,
+    ): WorkerRuntimeEntrypointGuard {
+        return new WorkerRuntimeEntrypointGuard(
+            kernelEntrypointGuard: $kernelEntrypointGuard,
+        );
+    }
+
     public function workerStateStore(
         StableJsonEncoder $encoder,
         StableJsonDecoder $decoder,
@@ -115,7 +124,7 @@ final class WorkerServiceFactory
     public function httpTaskFactory(
         ConfigRepositoryInterface $config,
         ModulePlan $modulePlan,
-        RuntimeEntrypointGuard $runtimeEntrypointGuard,
+        WorkerRuntimeEntrypointGuard $runtimeEntrypointGuard,
         ContainerInterface $container,
     ): HttpTaskFactory {
         return new HttpTaskFactory(

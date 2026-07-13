@@ -20,10 +20,10 @@ namespace Coretsia\Platform\Worker\Task;
 
 use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Internal\TaskFactoryInternalInterface;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Container\NotFoundExceptionInterface;
@@ -43,12 +43,13 @@ use Psr\Http\Server\RequestHandlerInterface;
  *
  * HTTP task mode has two preflight requirements:
  *
- * - RuntimeEntrypointGuard compatibility must pass first;
+ * - WorkerRuntimeEntrypointGuard compatibility must pass first;
  * - RequestHandlerInterface must then be resolvable from the container.
  *
  * Request-handler-missing failures must happen only after the canonical runtime
  * entrypoint guard has accepted the caller-provided ModulePlan. This class must
- * not bypass RuntimeEntrypointGuard and must not duplicate runtime-driver policy.
+ * not bypass WorkerRuntimeEntrypointGuard, call the Kernel guard directly, or
+ * duplicate runtime-driver policy.
  *
  * The operation id is the stable low-cardinality token `http`. It must remain
  * safe for observability metric label `operation` and must not include raw HTTP
@@ -65,7 +66,7 @@ final readonly class HttpTaskFactory implements TaskFactoryInternalInterface
     public function __construct(
         private ConfigRepositoryInterface $config,
         private ModulePlan $modulePlan,
-        private RuntimeEntrypointGuard $runtimeEntrypointGuard,
+        private WorkerRuntimeEntrypointGuard $runtimeEntrypointGuard,
         private ContainerInterface $container,
     ) {
     }
@@ -96,7 +97,7 @@ final readonly class HttpTaskFactory implements TaskFactoryInternalInterface
     {
         $operationId = $this->operationId($spec);
 
-        $this->assertRuntimeEntrypointCompatibilityHasPassed();
+        $this->assertRuntimeEntrypointCompatibilityHasPassed($spec);
         $this->assertRequestHandlerResolvable();
 
         return [
@@ -107,11 +108,13 @@ final readonly class HttpTaskFactory implements TaskFactoryInternalInterface
         ];
     }
 
-    private function assertRuntimeEntrypointCompatibilityHasPassed(): void
-    {
+    private function assertRuntimeEntrypointCompatibilityHasPassed(
+        WorkerPoolSpec $spec,
+    ): void {
         $this->runtimeEntrypointGuard->assertEntrypointAllowed(
             config: $this->config,
             modulePlan: $this->modulePlan,
+            spec: $spec,
         );
     }
 

@@ -39,6 +39,7 @@ use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
+use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
@@ -56,7 +57,9 @@ final class WorkerStartCommandContractTest extends TestCase
         $command = new WorkerStartCommand(
             config: $config,
             modulePlan: self::workerModulePlan(),
-            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
+            runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
+                kernelEntrypointGuard: new RuntimeEntrypointGuard(),
+            ),
             factory: new WorkerServiceFactory(),
             managerFactory: static function () use (&$managerFactoryCalls, $driver): WorkerManager {
                 $managerFactoryCalls++;
@@ -119,8 +122,8 @@ final class WorkerStartCommandContractTest extends TestCase
     {
         $source = self::workerStartCommandSource();
 
-        $guardPosition = \strpos($source, '$this->assertRuntimeEntrypointAllowed()');
-        $specPosition = \strpos($source, '$this->factory->workerPoolSpec($this->config)');
+        $specPosition = \strpos($source, '$spec = $this->factory->workerPoolSpec($this->config)');
+        $guardPosition = \strpos($source, '$this->assertRuntimeEntrypointAllowed($spec)');
         $managerStartPosition = \strpos($source, '$this->manager()->start($spec)');
 
         self::assertIsInt($guardPosition);
@@ -128,15 +131,15 @@ final class WorkerStartCommandContractTest extends TestCase
         self::assertIsInt($managerStartPosition);
 
         self::assertLessThan(
-            $specPosition,
             $guardPosition,
-            'RuntimeEntrypointGuard compatibility check must happen before WorkerServiceFactory::workerPoolSpec(...).',
+            $specPosition,
+            'WorkerServiceFactory::workerPoolSpec(...) must build the normalized WorkerPoolSpec before WorkerRuntimeEntrypointGuard is invoked.',
         );
 
         self::assertLessThan(
             $managerStartPosition,
-            $specPosition,
-            'WorkerServiceFactory::workerPoolSpec(...) must happen before WorkerManager::start(...).',
+            $guardPosition,
+            'WorkerRuntimeEntrypointGuard compatibility check must happen before WorkerManager::start(...).',
         );
 
         self::assertStringContainsString('$this->manager()->start($spec)', $source);
@@ -209,7 +212,7 @@ final class WorkerStartCommandContractTest extends TestCase
         );
     }
 
-    public function testGuardInvalidConfigReturnsOriginalRuntimeDriverInvalidConfigCodeAndReason(): void
+    public function testInvalidWorkerTaskTypeReturnsWorkerStartFailureCodeAndReason(): void
     {
         $config = new WorkerStartArrayConfigRepository(
             self::workerConfig([
@@ -246,8 +249,8 @@ final class WorkerStartCommandContractTest extends TestCase
         self::assertSame(
             [
                 [
-                    'code' => RuntimeDriverInvalidConfigException::ERROR_CODE,
-                    'message' => RuntimeDriverInvalidConfigException::REASON_WORKER_TASK_TYPE_INVALID,
+                    'code' => WorkerStartFailedException::ERROR_CODE,
+                    'message' => WorkerStartFailedException::REASON_INVALID_STATE,
                 ],
             ],
             $output->errors,
@@ -293,6 +296,49 @@ final class WorkerStartCommandContractTest extends TestCase
                 [
                     'code' => RuntimeDriverInvalidConfigException::ERROR_CODE,
                     'message' => RuntimeDriverInvalidConfigException::REASON_REQUIRES_PLATFORM_HTTP_MODULE,
+                ],
+            ],
+            $output->errors,
+        );
+    }
+
+    public function testMissingPlatformWorkerModuleFailsBeforeWorkerManagerResolution(): void
+    {
+        $config = new WorkerStartArrayConfigRepository(
+            self::workerConfig(),
+        );
+
+        $driver = new WorkerStartRecordingDriver(
+            state: self::startedState(),
+        );
+
+        $managerFactoryCalls = 0;
+
+        $command = self::command(
+            config: $config,
+            modulePlan: self::emptyModulePlan(),
+            driver: $driver,
+            managerFactoryCalls: $managerFactoryCalls,
+        );
+
+        $output = new WorkerStartRecordingOutput();
+
+        $exitCode = $command->run(
+            input: new WorkerStartParsedInput(
+                commandName: WorkerStartCommand::NAME,
+            ),
+            output: $output,
+        );
+
+        self::assertSame(1, $exitCode);
+        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $driver->startCalls);
+
+        self::assertSame(
+            [
+                [
+                    'code' => RuntimeDriverInvalidConfigException::ERROR_CODE,
+                    'message' => RuntimeDriverInvalidConfigException::REASON_REQUIRES_PLATFORM_WORKER_MODULE,
                 ],
             ],
             $output->errors,
@@ -474,7 +520,9 @@ final class WorkerStartCommandContractTest extends TestCase
         return new WorkerStartCommand(
             config: $config,
             modulePlan: $modulePlan,
-            runtimeEntrypointGuard: new RuntimeEntrypointGuard(),
+            runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
+                kernelEntrypointGuard: new RuntimeEntrypointGuard(),
+            ),
             factory: new WorkerServiceFactory(),
             managerFactory: static function () use (&$managerFactoryCalls, $driver): WorkerManager {
                 $managerFactoryCalls++;

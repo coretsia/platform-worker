@@ -23,12 +23,14 @@ use Coretsia\Contracts\Cli\Input\InputInterface;
 use Coretsia\Contracts\Cli\Output\OutputInterface;
 use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
+use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
+use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
+use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 
 /**
  * Starts the configured worker pool.
@@ -84,7 +86,6 @@ final readonly class WorkerStartCommand implements CommandInterface
 
     private const string ERROR_CODE_WORKER_COMMAND_INVALID = 'CORETSIA_WORKER_COMMAND_INVALID';
     private const string ERROR_CODE_WORKER_START_FAILED = 'CORETSIA_WORKER_START_FAILED';
-    private const string MODULE_PLATFORM_WORKER = 'platform.worker';
 
     /**
      * @param \Closure(): WorkerManager $managerFactory
@@ -92,7 +93,7 @@ final readonly class WorkerStartCommand implements CommandInterface
     public function __construct(
         private ConfigRepositoryInterface $config,
         private ModulePlan $modulePlan,
-        private RuntimeEntrypointGuard $runtimeEntrypointGuard,
+        private WorkerRuntimeEntrypointGuard $runtimeEntrypointGuard,
         private WorkerServiceFactory $factory,
         private \Closure $managerFactory,
     ) {
@@ -110,9 +111,10 @@ final readonly class WorkerStartCommand implements CommandInterface
         }
 
         try {
-            $this->assertRuntimeEntrypointAllowed();
-
             $spec = $this->factory->workerPoolSpec($this->config);
+
+            $this->assertRuntimeEntrypointAllowed($spec);
+
             $state = $this->manager()->start($spec);
 
             $output->json(self::startSummary($state));
@@ -132,6 +134,13 @@ final readonly class WorkerStartCommand implements CommandInterface
             );
 
             return self::EXIT_FAILURE;
+        } catch (WorkerStartFailedException $exception) {
+            $output->error(
+                $exception->errorCode(),
+                $exception->reason(),
+            );
+
+            return self::EXIT_FAILURE;
         } catch (\Throwable) {
             $output->error(
                 self::ERROR_CODE_WORKER_START_FAILED,
@@ -142,15 +151,12 @@ final readonly class WorkerStartCommand implements CommandInterface
         }
     }
 
-    private function assertRuntimeEntrypointAllowed(): void
+    private function assertRuntimeEntrypointAllowed(WorkerPoolSpec $spec): void
     {
-        if (!$this->modulePlan->hasEnabledModule(self::MODULE_PLATFORM_WORKER)) {
-            throw RuntimeDriverInvalidConfigException::requiresPlatformWorkerModule();
-        }
-
         $this->runtimeEntrypointGuard->assertEntrypointAllowed(
             config: $this->config,
             modulePlan: $this->modulePlan,
+            spec: $spec,
         );
     }
 
