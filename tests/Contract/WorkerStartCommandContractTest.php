@@ -35,6 +35,7 @@ use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Internal\WorkerManagerDriverInterface;
+use Coretsia\Platform\Worker\Internal\WorkerManagerResolverInterface;
 use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
@@ -52,7 +53,9 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
 
         $command = new WorkerStartCommand(
             config: $config,
@@ -61,11 +64,7 @@ final class WorkerStartCommandContractTest extends TestCase
                 kernelEntrypointGuard: new RuntimeEntrypointGuard(),
             ),
             factory: new WorkerServiceFactory(),
-            managerFactory: static function () use (&$managerFactoryCalls, $driver): WorkerManager {
-                $managerFactoryCalls++;
-
-                return self::workerManager($driver);
-            },
+            managerResolver: $managerResolver,
         );
 
         $input = new WorkerStartParsedInput(
@@ -79,7 +78,7 @@ final class WorkerStartCommandContractTest extends TestCase
         self::assertSame(0, $exitCode);
         self::assertFalse($input->tokensCalled, 'WorkerStartCommand must not call InputInterface::tokens().');
 
-        self::assertSame(1, $managerFactoryCalls);
+        self::assertSame(1, $managerResolver->resolveCalls);
         self::assertSame(1, $driver->startCalls);
         self::assertInstanceOf(WorkerPoolSpec::class, $driver->lastStartSpec);
 
@@ -144,6 +143,8 @@ final class WorkerStartCommandContractTest extends TestCase
 
         self::assertStringContainsString('$this->manager()->start($spec)', $source);
 
+        self::assertStringContainsString('return $this->managerResolver->resolve();', $source);
+        self::assertStringNotContainsString('managerFactory', $source);
         self::assertStringNotContainsString('CommandCatalog', $source);
         self::assertStringNotContainsString('Coretsia\\Platform\\Cli', $source);
         self::assertStringNotContainsString('Application::class', $source);
@@ -181,13 +182,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
 
         $command = self::command(
             config: $config,
             modulePlan: self::workerModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $output = new WorkerStartRecordingOutput();
@@ -198,7 +201,7 @@ final class WorkerStartCommandContractTest extends TestCase
         );
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
 
         self::assertSame(
@@ -226,13 +229,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
 
         $command = self::command(
             config: $config,
             modulePlan: self::workerModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $output = new WorkerStartRecordingOutput();
@@ -243,7 +248,7 @@ final class WorkerStartCommandContractTest extends TestCase
         );
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
 
         self::assertSame(
@@ -271,13 +276,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
 
         $command = self::command(
             config: $config,
             modulePlan: self::workerModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $output = new WorkerStartRecordingOutput();
@@ -288,7 +295,7 @@ final class WorkerStartCommandContractTest extends TestCase
         );
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
 
         self::assertSame(
@@ -312,13 +319,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
 
         $command = self::command(
             config: $config,
             modulePlan: self::emptyModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $output = new WorkerStartRecordingOutput();
@@ -331,7 +340,7 @@ final class WorkerStartCommandContractTest extends TestCase
         );
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
 
         self::assertSame(
@@ -351,12 +360,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
+
         $command = self::command(
             config: new WorkerStartArrayConfigRepository(self::workerConfig()),
             modulePlan: self::emptyModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $input = new WorkerStartParsedInput(commandName: 'worker:status');
@@ -365,7 +377,7 @@ final class WorkerStartCommandContractTest extends TestCase
         $exitCode = $command->run($input, $output);
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
         self::assertFalse($input->tokensCalled);
 
@@ -386,12 +398,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
+
         $command = self::command(
             config: new WorkerStartArrayConfigRepository(self::workerConfig()),
             modulePlan: self::emptyModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $input = new WorkerStartParsedInput(
@@ -403,7 +418,7 @@ final class WorkerStartCommandContractTest extends TestCase
         $exitCode = $command->run($input, $output);
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
         self::assertFalse($input->tokensCalled);
 
@@ -424,12 +439,15 @@ final class WorkerStartCommandContractTest extends TestCase
             state: self::startedState(),
         );
 
-        $managerFactoryCalls = 0;
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
+
         $command = self::command(
             config: new WorkerStartArrayConfigRepository(self::workerConfig()),
             modulePlan: self::emptyModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $input = new WorkerStartParsedInput(
@@ -441,7 +459,7 @@ final class WorkerStartCommandContractTest extends TestCase
         $exitCode = $command->run($input, $output);
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
         self::assertFalse($input->tokensCalled);
 
@@ -465,8 +483,13 @@ final class WorkerStartCommandContractTest extends TestCase
 
     public function testStartRejectsNonClassicHttpDriverEvenWhenWorkerTaskTypeIsQueueAndPlatformHttpIsMissing(): void
     {
-        $driver = new WorkerStartRecordingDriver(state: self::startedState());
-        $managerFactoryCalls = 0;
+        $driver = new WorkerStartRecordingDriver(
+            state: self::startedState()
+        );
+
+        $managerResolver = new WorkerStartRecordingManagerResolver(
+            manager: self::workerManager($driver),
+        );
 
         $command = self::command(
             config: new WorkerStartArrayConfigRepository(
@@ -483,7 +506,7 @@ final class WorkerStartCommandContractTest extends TestCase
             ),
             modulePlan: self::workerModulePlan(),
             driver: $driver,
-            managerFactoryCalls: $managerFactoryCalls,
+            managerResolver: $managerResolver,
         );
 
         $output = new WorkerStartRecordingOutput();
@@ -494,7 +517,7 @@ final class WorkerStartCommandContractTest extends TestCase
         );
 
         self::assertSame(1, $exitCode);
-        self::assertSame(0, $managerFactoryCalls);
+        self::assertSame(0, $managerResolver->resolveCalls);
         self::assertSame(0, $driver->startCalls);
 
         self::assertSame(
@@ -508,14 +531,11 @@ final class WorkerStartCommandContractTest extends TestCase
         );
     }
 
-    /**
-     * @param int $managerFactoryCalls
-     */
     private static function command(
         WorkerStartArrayConfigRepository $config,
         ModulePlan $modulePlan,
         WorkerStartRecordingDriver $driver,
-        int &$managerFactoryCalls,
+        WorkerStartRecordingManagerResolver $managerResolver,
     ): WorkerStartCommand {
         return new WorkerStartCommand(
             config: $config,
@@ -524,11 +544,7 @@ final class WorkerStartCommandContractTest extends TestCase
                 kernelEntrypointGuard: new RuntimeEntrypointGuard(),
             ),
             factory: new WorkerServiceFactory(),
-            managerFactory: static function () use (&$managerFactoryCalls, $driver): WorkerManager {
-                $managerFactoryCalls++;
-
-                return self::workerManager($driver);
-            },
+            managerResolver: $managerResolver,
         );
     }
 
@@ -918,6 +934,23 @@ final class WorkerStartRecordingOutput implements OutputInterface
             'code' => $code,
             'message' => $message,
         ];
+    }
+}
+
+final class WorkerStartRecordingManagerResolver implements WorkerManagerResolverInterface
+{
+    public int $resolveCalls = 0;
+
+    public function __construct(
+        private readonly WorkerManager $manager,
+    ) {
+    }
+
+    public function resolve(): WorkerManager
+    {
+        $this->resolveCalls++;
+
+        return $this->manager;
     }
 }
 

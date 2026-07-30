@@ -19,6 +19,7 @@ declare(strict_types=1);
 
 use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Boot\ArtifactRuntimeBooter;
+use Coretsia\Kernel\Boot\ArtifactRuntimeInput;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
@@ -88,8 +89,7 @@ function coretsia_worker_child_throw(string $reason): never
  *     max_requests: int,
  *     task_type: string,
  *     driver: string,
- *     config: string,
- *     container: string
+ *     artifact_root: string
  * }
  */
 function coretsia_worker_child_parse_args(array $argv): array
@@ -138,8 +138,7 @@ function coretsia_worker_child_parse_args(array $argv): array
         'coretsia-worker-max-requests',
         'coretsia-worker-task-type',
         'coretsia-worker-driver',
-        'coretsia-worker-config',
-        'coretsia-worker-container',
+        'coretsia-worker-artifact-root',
     ];
 
     foreach ($required as $key) {
@@ -159,8 +158,7 @@ function coretsia_worker_child_parse_args(array $argv): array
     $maxRequests = coretsia_worker_child_positive_int($values['coretsia-worker-max-requests']);
     $taskType = $values['coretsia-worker-task-type'];
     $driver = $values['coretsia-worker-driver'];
-    $config = $values['coretsia-worker-config'];
-    $container = $values['coretsia-worker-container'];
+    $artifactRoot = $values['coretsia-worker-artifact-root'];
 
     if ($index >= $count) {
         coretsia_worker_child_throw('argv-invalid');
@@ -174,11 +172,7 @@ function coretsia_worker_child_parse_args(array $argv): array
         coretsia_worker_child_throw('argv-invalid');
     }
 
-    if (!coretsia_worker_child_is_relative_safe_path($config)) {
-        coretsia_worker_child_throw('argv-invalid');
-    }
-
-    if (!coretsia_worker_child_is_relative_safe_path($container)) {
+    if (!coretsia_worker_child_is_relative_safe_path($artifactRoot)) {
         coretsia_worker_child_throw('argv-invalid');
     }
 
@@ -188,8 +182,7 @@ function coretsia_worker_child_parse_args(array $argv): array
         'max_requests' => $maxRequests,
         'task_type' => $taskType,
         'driver' => $driver,
-        'config' => $config,
-        'container' => $container,
+        'artifact_root' => $artifactRoot,
     ];
 }
 
@@ -317,13 +310,15 @@ function coretsia_worker_child_require_autoload(string $skeletonRoot): void
 }
 
 function coretsia_worker_child_boot_container(
-    string $configArtifactPath,
-    string $containerArtifactPath,
+    string $skeletonRoot,
+    string $artifactRoot,
 ): ContainerInterface {
     try {
         return new ArtifactRuntimeBooter()->boot(
-            configArtifactPath: $configArtifactPath,
-            containerArtifactPath: $containerArtifactPath,
+            input: new ArtifactRuntimeInput(
+                skeletonRoot: $skeletonRoot,
+                artifactRoot: $artifactRoot,
+            ),
         );
     } catch (\Throwable) {
         coretsia_worker_child_throw('runtime-container-boot-failed');
@@ -352,8 +347,10 @@ function coretsia_worker_child_service(ContainerInterface $container, string $id
     return $service;
 }
 
-function coretsia_worker_child_assert_runtime_entrypoint_allowed(ContainerInterface $container, WorkerPoolSpec $spec): void
-{
+function coretsia_worker_child_assert_runtime_entrypoint_allowed(
+    ContainerInterface $container,
+    WorkerPoolSpec $spec
+): void {
     try {
         /** @var WorkerRuntimeEntrypointGuard $guard */
         $guard = coretsia_worker_child_service($container, WorkerRuntimeEntrypointGuard::class);
@@ -385,8 +382,7 @@ function coretsia_worker_child_assert_runtime_entrypoint_allowed(ContainerInterf
  *     max_requests: int,
  *     task_type: string,
  *     driver: string,
- *     config: string,
- *     container: string
+ *     artifact_root: string
  * } $args
  */
 function coretsia_worker_child_assert_args_match_spec(array $args, WorkerPoolSpec $spec): void
@@ -420,19 +416,14 @@ try {
 
     coretsia_worker_child_require_autoload($skeletonRoot);
 
-    $configArtifactPath = coretsia_worker_child_resolve_relative_path(
+    $artifactRoot = coretsia_worker_child_resolve_relative_path(
         skeletonRoot: $skeletonRoot,
-        relativePath: $args['config'],
-    );
-
-    $containerArtifactPath = coretsia_worker_child_resolve_relative_path(
-        skeletonRoot: $skeletonRoot,
-        relativePath: $args['container'],
+        relativePath: $args['artifact_root'],
     );
 
     $container = coretsia_worker_child_boot_container(
-        configArtifactPath: $configArtifactPath,
-        containerArtifactPath: $containerArtifactPath,
+        skeletonRoot: $skeletonRoot,
+        artifactRoot: $artifactRoot,
     );
 
     /** @var WorkerPoolSpec $spec */

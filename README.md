@@ -14,15 +14,11 @@
 
 # coretsia/platform-worker
 
-Experimental long-running worker runtime substrate.
+`platform/worker` is the experimental long-running Worker runtime package for the Coretsia Framework monorepo.
 
-No real queue/HTTP task sources yet.
+It provides process orchestration and package-local placeholder task factories. Production queue and HTTP task sources belong to platform or integration packages.
 
-Used by future Coretsia queue/HTTP/runtime integrations.
-
-`platform/worker` is the long-running Worker runtime package for the Coretsia Framework monorepo.
-
-Scope: worker module metadata, worker service provider/factory wiring, worker pool specification, process-driver lifecycle orchestration, application worker task loops, deterministic worker state storage, payload-free control transport, package-contributed worker command classes, safe worker exceptions, and worker runtime observability summaries.
+Scope: worker module metadata, canonical declarative worker container definitions, worker service provider/factory wiring, worker pool specification, process-driver lifecycle orchestration, generation-root proc-child launch, artifact-only child container boot, application worker task loops, deterministic worker state storage, payload-free control transport, package-contributed worker command classes, safe worker exceptions, and worker runtime observability summaries.
 
 Out of scope: CLI binary dispatch, CLI command catalog construction, HTTP platform adapters, real HTTP request production, real queue adapter behavior, external queue acknowledgement/retry/dead-letter semantics, scheduler integrations, RoadRunner/Swoole/FrankenPHP adapters, public task-source plugin APIs, public worker-driver plugin APIs, Kernel UnitOfWork lifecycle ownership, Kernel hook discovery, reset discovery, reset execution semantics, observability exporters, and tooling-only behavior.
 
@@ -79,6 +75,8 @@ This package provides the worker runtime layer:
 - package-internal process-driver seam through `WorkerManagerDriverInterface`;
 - `pcntl` process driver through `PcntlWorkerManagerDriver`;
 - `proc` process driver through `ProcWorkerManagerDriver`;
+- one-root proc-child artifact handoff through `--coretsia-worker-artifact-root`;
+- artifact-only child container boot through Kernel `ArtifactRuntimeBooter`;
 - normalized worker pool config through `WorkerPoolSpec`;
 - immutable safe worker state through `WorkerPoolState`;
 - deterministic worker state file I/O through `WorkerStateStore`;
@@ -89,6 +87,7 @@ This package provides the worker runtime layer:
 - HTTP task-mode preflight factory through `HttpTaskFactory`;
 - package-local runtime-driver contribution mapper through `WorkerRuntimeDriverContributions`;
 - Worker-owned runtime entrypoint compatibility boundary through `WorkerRuntimeEntrypointGuard`;
+- explicit proc-child resolution of generation-seeded `ConfigRepositoryInterface` and `ModulePlan`, plus `WorkerPoolSpec`, `WorkerRuntimeEntrypointGuard`, and `ApplicationWorker` from the compiled container; `KernelRuntimeInterface` is resolved transitively as an `ApplicationWorker` dependency;
 - deterministic worker exceptions under `Coretsia\Platform\Worker\Exception`.
 
 ## Process model
@@ -104,9 +103,17 @@ worker:start command
        -> Kernel RuntimeEntrypointGuard
   -> WorkerManager
   -> selected process driver
-  -> master process state
-  -> N worker children
-  -> ApplicationWorker task loops
+     -> pcntl
+        -> inherited ApplicationWorker
+     -> proc
+        -> --coretsia-worker-artifact-root=<relative-safe-path>
+        -> ArtifactRuntimeInput
+        -> ArtifactRuntimeBooter
+        -> current generation
+        -> compiled runtime container
+        -> WorkerPoolSpec
+        -> WorkerRuntimeEntrypointGuard
+        -> ApplicationWorker
 ```
 
 `WorkerPoolSpec` is the normalized Worker-owned source of truth for `worker.task_type`.
@@ -116,6 +123,10 @@ Worker runtime-driver contributions are derived from `WorkerPoolSpec`, not by as
 The master process owns pool lifecycle orchestration through `WorkerManager`.
 
 The selected process driver owns concrete process behavior.
+
+`RuntimePathContext` is an entrypoint-owned runtime value. Source-mode boot constructs it from resolved `BootstrapConfig`; artifact-only boot hydrates it as one of the exact runtime seeds.
+
+The proc driver receives the artifact root only through this context. It MUST NOT derive artifact location from Worker config or from hardcoded package paths.
 
 Each child process runs an `ApplicationWorker`.
 
@@ -186,6 +197,126 @@ tcp otherwise
 Raw socket paths and raw TCP endpoints are not public diagnostics.
 
 Endpoint identity may be exposed publicly only through `endpoint_hash`.
+
+## Proc child artifact-only boot
+
+The `proc` driver starts a fresh PHP child process.
+
+Unlike a forked `pcntl` child, the proc child does not inherit the master's in-memory runtime container.
+
+`WorkerServiceFactory::procWorkerManagerDriver(...)` derives one skeleton-root-relative artifact root from:
+
+```text
+RuntimePathContext::skeletonRoot()
+RuntimePathContext::artifactRoot()
+```
+
+The absolute artifact root MUST be a strict descendant of the skeleton root.
+
+An equal root or an absolute root outside the skeleton fails deterministically.
+
+`ProcWorkerManagerDriver` stores one artifact root instead of independent artifact paths.
+
+Its constructor also retains the skeleton root, worker command vector, `WorkerStateStore`, and `WorkerSocketServer`; runtime lifecycle state tracks process handles started by the driver.
+
+It does not store independent module-manifest, config, or container paths.
+
+The canonical child argument is:
+
+```text
+--coretsia-worker-artifact-root=<relative-safe-path>
+```
+
+The child MUST reject legacy individual artifact arguments:
+
+```text
+--coretsia-worker-module-manifest
+--coretsia-worker-config
+--coretsia-worker-container
+```
+
+The artifact-root argument MUST:
+
+- be non-empty;
+- be skeleton-root-relative;
+- use `/` separators;
+- contain no whitespace;
+- contain no control bytes;
+- contain no empty segments;
+- contain no `.` or `..` segments;
+- contain no stream-wrapper syntax;
+- contain no absolute-path prefix;
+- contain no `@`-prefixed segment.
+
+The child uses its working directory as the normalized skeleton root and resolves the relative artifact root against it.
+
+It creates:
+
+```php
+new ArtifactRuntimeInput(
+    skeletonRoot: $skeletonRoot,
+    artifactRoot: $artifactRoot,
+);
+```
+
+The child then invokes:
+
+```text
+Coretsia\Kernel\Boot\ArtifactRuntimeBooter
+```
+
+The Kernel boot boundary:
+
+1. locates `current`;
+2. validates one complete immutable generation;
+3. reads exact snapshots for all four generation files;
+4. validates generation metadata and envelope fingerprints;
+5. hydrates `ConfigRepositoryInterface`;
+6. hydrates `ModulePlan`;
+7. creates `RuntimePathContext`;
+8. builds the compiled runtime container.
+
+After the container is built, the child resolves:
+
+```text
+WorkerPoolSpec
+WorkerRuntimeEntrypointGuard
+ConfigRepositoryInterface
+ModulePlan
+ApplicationWorker
+```
+
+It validates that the received child arguments match `WorkerPoolSpec`, invokes the Worker runtime entrypoint guard, and only then starts `ApplicationWorker`.
+
+The child artifact-only boot path MUST NOT:
+
+- accept individual artifact paths;
+- run Bootstrap Phase A;
+- run ConfigKernel Phase B;
+- read source config files;
+- discover modules;
+- read Composer module metadata;
+- execute source providers;
+- compile a replacement container graph;
+- calculate fingerprints;
+- write or repair artifacts;
+- scan `generations/` for a newest directory;
+- fall back to another generation.
+
+Child boot failures emit exactly two normalized STDERR lines:
+
+```text
+CORETSIA_WORKER_CHILD_BOOT_FAILED
+<safe-reason>
+```
+
+Any Kernel artifact-runtime boot failure is collapsed to:
+
+```text
+runtime-container-boot-failed
+```
+
+The launcher MUST NOT forward the nested Kernel exception message or reason.
 
 ## Configuration
 
@@ -296,7 +427,7 @@ They MUST NOT write stdout or stderr directly.
 
 They MUST NOT depend on `platform/cli`.
 
-Full `coretsia worker:*` binary dispatch through container-backed CLI tag discovery is owned by a later `platform/cli` epic.
+Full `coretsia worker:*` binary dispatch through container-backed CLI tag discovery is owned by `platform/cli`.
 
 ### `worker:start`
 
@@ -514,11 +645,11 @@ http
 worker.task_type=queue
 ```
 
-The current queue task factory is package-local placeholder task work.
+The shipped queue task factory performs package-local placeholder task work.
 
 It does not implement a production queue adapter.
 
-Real queue sources, transports, acknowledgement semantics, retry semantics, dead-letter behavior, and integration-specific adapters are owned by later integration epics.
+Real queue sources, transports, acknowledgement semantics, retry semantics, dead-letter behavior, and integration-specific adapters are owned by integration packages.
 
 ### HTTP task mode
 
@@ -826,6 +957,9 @@ This package does not provide:
 - public worker plugin APIs;
 - public task-source plugin APIs;
 - container artifact schema;
+- artifact-generation publication;
+- artifact-generation validation policy;
+- compiled-container payload construction;
 - config merge implementation;
 - config validation implementation;
 - production observability exporter configuration.
@@ -839,4 +973,8 @@ This package does not provide:
 - [Observability SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/observability.md)
 - [Runtime Drivers SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/runtime-drivers.md)
 - [UnitOfWork and Reset Contracts SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/uow-and-reset-contracts.md)
+- [Artifact Generations SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/artifact-generations.md)
+- [Compiled Container SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/compiled-container.md)
+- [ADR-0029: Kernel compiled container artifact](https://github.com/coretsia/monorepo/tree/main/docs/adr/ADR-0029-kernel-container-compile-artifact.md)
+- [ADR-0031: Atomic Artifact Generations](https://github.com/coretsia/monorepo/tree/main/docs/adr/ADR-0031-atomic-artifact-generations.md)
 - [Worker package source](https://github.com/coretsia/monorepo/tree/main/framework/packages/platform/worker)

@@ -44,17 +44,11 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
         parent::tearDown();
     }
 
-    public function testLauncherAcceptsOnlyWorkerOwnedInternalArgs(): void
+    public function testLauncherAcceptsSingleArtifactRootArg(): void
     {
-        $result = $this->runLauncher([
-            '--coretsia-worker-index=0',
-            '--coretsia-worker-count=1',
-            '--coretsia-worker-max-requests=1',
-            '--coretsia-worker-task-type=queue',
-            '--coretsia-worker-driver=proc',
-            '--coretsia-worker-config=var/cache/app/config.php',
-            '--coretsia-worker-container=var/cache/app/container.php',
-        ]);
+        $result = $this->runLauncher(
+            self::validInternalArgs(),
+        );
 
         self::assertSame(1, $result['exit_code']);
         self::assertSame('', $result['stdout']);
@@ -64,54 +58,56 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
         );
     }
 
-    public function testLauncherAcceptsCoretsiaWorkerConfigArg(): void
+    public function testLauncherRejectsLegacyModuleManifestArg(): void
     {
         $result = $this->runLauncher([
-            '--coretsia-worker-index=0',
-            '--coretsia-worker-count=1',
-            '--coretsia-worker-max-requests=1',
-            '--coretsia-worker-task-type=queue',
-            '--coretsia-worker-driver=proc',
-            '--coretsia-worker-config=var/cache/app/config.php',
-            '--coretsia-worker-container=var/cache/app/container.php',
+            ...self::validInternalArgs(),
+            '--coretsia-worker-module-manifest='
+            . 'var/cache/app/module-manifest.php',
         ]);
 
         self::assertSame(1, $result['exit_code']);
+        self::assertSame('', $result['stdout']);
         self::assertFailure(
             stderr: $result['stderr'],
-            reason: 'autoload-missing',
+            reason: 'argv-invalid',
         );
     }
 
-    public function testLauncherAcceptsCoretsiaWorkerContainerArg(): void
+    public function testLauncherRejectsLegacyConfigArg(): void
     {
         $result = $this->runLauncher([
-            '--coretsia-worker-index=0',
-            '--coretsia-worker-count=1',
-            '--coretsia-worker-max-requests=1',
-            '--coretsia-worker-task-type=queue',
-            '--coretsia-worker-driver=proc',
+            ...self::validInternalArgs(),
             '--coretsia-worker-config=var/cache/app/config.php',
+        ]);
+
+        self::assertSame(1, $result['exit_code']);
+        self::assertSame('', $result['stdout']);
+        self::assertFailure(
+            stderr: $result['stderr'],
+            reason: 'argv-invalid',
+        );
+    }
+
+    public function testLauncherRejectsLegacyContainerArg(): void
+    {
+        $result = $this->runLauncher([
+            ...self::validInternalArgs(),
             '--coretsia-worker-container=var/cache/app/container.php',
         ]);
 
         self::assertSame(1, $result['exit_code']);
+        self::assertSame('', $result['stdout']);
         self::assertFailure(
             stderr: $result['stderr'],
-            reason: 'autoload-missing',
+            reason: 'argv-invalid',
         );
     }
 
     public function testLauncherRejectsUnknownArgs(): void
     {
         $result = $this->runLauncher([
-            '--coretsia-worker-index=0',
-            '--coretsia-worker-count=1',
-            '--coretsia-worker-max-requests=1',
-            '--coretsia-worker-task-type=queue',
-            '--coretsia-worker-driver=proc',
-            '--coretsia-worker-config=var/cache/app/config.php',
-            '--coretsia-worker-container=var/cache/app/container.php',
+            ...self::validInternalArgs(),
             '--unknown=1',
         ]);
 
@@ -123,7 +119,7 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
         );
     }
 
-    public function testLauncherRejectsMissingCoretsiaWorkerConfigArg(): void
+    public function testLauncherRejectsMissingArtifactRootArg(): void
     {
         $result = $this->runLauncher([
             '--coretsia-worker-index=0',
@@ -131,26 +127,6 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
             '--coretsia-worker-max-requests=1',
             '--coretsia-worker-task-type=queue',
             '--coretsia-worker-driver=proc',
-            '--coretsia-worker-container=var/cache/app/container.php',
-        ]);
-
-        self::assertSame(1, $result['exit_code']);
-        self::assertSame('', $result['stdout']);
-        self::assertFailure(
-            stderr: $result['stderr'],
-            reason: 'argv-invalid',
-        );
-    }
-
-    public function testLauncherRejectsMissingCoretsiaWorkerContainerArg(): void
-    {
-        $result = $this->runLauncher([
-            '--coretsia-worker-index=0',
-            '--coretsia-worker-count=1',
-            '--coretsia-worker-max-requests=1',
-            '--coretsia-worker-task-type=queue',
-            '--coretsia-worker-driver=proc',
-            '--coretsia-worker-config=var/cache/app/config.php',
         ]);
 
         self::assertSame(1, $result['exit_code']);
@@ -193,9 +169,38 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
             'use Coretsia\\Kernel\\Boot\\ArtifactRuntimeBooter;',
             $source,
         );
+        self::assertStringContainsString(
+            'use Coretsia\\Kernel\\Boot\\ArtifactRuntimeInput;',
+            $source,
+        );
 
         self::assertStringContainsString(
             'new ArtifactRuntimeBooter()->boot(',
+            $source,
+        );
+        self::assertStringContainsString(
+            'input: new ArtifactRuntimeInput(',
+            $source,
+        );
+        self::assertStringContainsString(
+            "relativePath: \$args['artifact_root']",
+            $source,
+        );
+        self::assertStringContainsString(
+            'artifactRoot: $artifactRoot,',
+            $source,
+        );
+
+        self::assertStringNotContainsString(
+            'moduleManifestArtifactPath:',
+            $source,
+        );
+        self::assertStringNotContainsString(
+            'configArtifactPath:',
+            $source,
+        );
+        self::assertStringNotContainsString(
+            'containerArtifactPath:',
             $source,
         );
     }
@@ -298,6 +303,21 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
     }
 
     /**
+     * @return list<string>
+     */
+    private static function validInternalArgs(): array
+    {
+        return [
+            '--coretsia-worker-index=0',
+            '--coretsia-worker-count=1',
+            '--coretsia-worker-max-requests=1',
+            '--coretsia-worker-task-type=queue',
+            '--coretsia-worker-driver=proc',
+            '--coretsia-worker-artifact-root=var/cache/app',
+        ];
+    }
+
+    /**
      * @param list<string> $args
      *
      * @return array{exit_code: int, stdout: string, stderr: string}
@@ -376,8 +396,12 @@ final class CoretsiaWorkerChildLauncherContractTest extends TestCase
     {
         foreach (
             [
+                'var/cache/app',
+                '/var/cache/app',
+                'var/cache/app/module-manifest.php',
                 'var/cache/app/config.php',
                 'var/cache/app/container.php',
+                '/var/cache/app/module-manifest.php',
                 '/var/cache/app/config.php',
                 '/var/cache/app/container.php',
                 'C:\\',

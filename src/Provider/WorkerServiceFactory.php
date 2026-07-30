@@ -28,6 +28,7 @@ use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\RuntimePathContext;
 use Coretsia\Platform\Worker\Communication\WorkerSocketServer;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Internal\TaskFactoryInternalInterface;
@@ -135,28 +136,31 @@ final class WorkerServiceFactory
         );
     }
 
-    /**
-     * @param \Closure(): QueueTaskFactory $queueTaskFactory
-     * @param \Closure(): HttpTaskFactory $httpTaskFactory
-     */
     public function taskFactory(
         WorkerPoolSpec $spec,
-        \Closure $queueTaskFactory,
-        \Closure $httpTaskFactory,
+        ContainerInterface $container,
     ): TaskFactoryInternalInterface {
-        return match ($spec->taskType()) {
-            TaskFactoryInternalInterface::TASK_TYPE_QUEUE => $this->supportedTaskFactory(
-                spec: $spec,
-                taskFactory: $queueTaskFactory(),
-            ),
-
-            TaskFactoryInternalInterface::TASK_TYPE_HTTP => $this->supportedTaskFactory(
-                spec: $spec,
-                taskFactory: $httpTaskFactory(),
-            ),
+        $serviceId = match ($spec->taskType()) {
+            TaskFactoryInternalInterface::TASK_TYPE_QUEUE => QueueTaskFactory::class,
+            TaskFactoryInternalInterface::TASK_TYPE_HTTP => HttpTaskFactory::class,
 
             default => throw WorkerStartFailedException::startFailed(),
         };
+
+        try {
+            $taskFactory = $container->get($serviceId);
+        } catch (\Throwable) {
+            throw WorkerStartFailedException::startFailed();
+        }
+
+        if (!$taskFactory instanceof TaskFactoryInternalInterface) {
+            throw WorkerStartFailedException::startFailed();
+        }
+
+        return $this->supportedTaskFactory(
+            spec: $spec,
+            taskFactory: $taskFactory,
+        );
     }
 
     private function supportedTaskFactory(
@@ -171,7 +175,7 @@ final class WorkerServiceFactory
     }
 
     public function applicationWorker(
-        string $skeletonRoot,
+        RuntimePathContext $runtimePaths,
         KernelRuntimeInterface $kernelRuntime,
         TaskFactoryInternalInterface $taskFactory,
         ContextAccessorInterface $context,
@@ -180,7 +184,7 @@ final class WorkerServiceFactory
         MeterPortInterface $meter,
     ): ApplicationWorker {
         return new ApplicationWorker(
-            skeletonRoot: $skeletonRoot,
+            skeletonRoot: $runtimePaths->skeletonRoot(),
             kernelRuntime: $kernelRuntime,
             taskFactory: $taskFactory,
             context: $context,
@@ -191,7 +195,7 @@ final class WorkerServiceFactory
     }
 
     public function pcntlWorkerManagerDriver(
-        string $skeletonRoot,
+        RuntimePathContext $runtimePaths,
         WorkerStateStore $stateStore,
         WorkerSocketServer $controlChannel,
         ApplicationWorker $applicationWorker,
@@ -199,10 +203,15 @@ final class WorkerServiceFactory
         ?string $platformFamily = null,
     ): PcntlWorkerManagerDriver {
         return new PcntlWorkerManagerDriver(
-            skeletonRoot: $skeletonRoot,
+            skeletonRoot: $runtimePaths->skeletonRoot(),
             stateStore: $stateStore,
             controlChannel: $controlChannel,
-            childRunner: static function (WorkerPoolSpec $spec, int $_workerIndex) use ($applicationWorker): int {
+            childRunner: static function (
+                WorkerPoolSpec $spec,
+                int $_workerIndex,
+            ) use (
+                $applicationWorker,
+            ): int {
                 $applicationWorker->run($spec);
 
                 return 0;
@@ -222,11 +231,19 @@ final class WorkerServiceFactory
      *
      * @return list<non-empty-string>
      */
-    public function procWorkerCommand(ConfigRepositoryInterface $config): array
-    {
-        $command = self::requiredConfigValue($config, 'worker.proc.command');
+    public function procWorkerCommand(
+        ConfigRepositoryInterface $config,
+    ): array {
+        $command = self::requiredConfigValue(
+            $config,
+            'worker.proc.command',
+        );
 
-        if (!\is_array($command) || !\array_is_list($command) || $command === []) {
+        if (
+            !\is_array($command)
+            || !\array_is_list($command)
+            || $command === []
+        ) {
             throw WorkerStartFailedException::invalidState();
         }
 
@@ -254,24 +271,18 @@ final class WorkerServiceFactory
         return $normalized;
     }
 
-    /**
-     * @param list<non-empty-string> $workerCommand
-     */
     public function procWorkerManagerDriver(
-        string $skeletonRoot,
+        RuntimePathContext $runtimePaths,
         WorkerStateStore $stateStore,
         WorkerSocketServer $controlChannel,
-        array $workerCommand,
-        string $configArtifactPath,
-        string $containerArtifactPath,
+        ConfigRepositoryInterface $config,
     ): ProcWorkerManagerDriver {
         return new ProcWorkerManagerDriver(
-            skeletonRoot: $skeletonRoot,
+            skeletonRoot: $runtimePaths->skeletonRoot(),
             stateStore: $stateStore,
             controlChannel: $controlChannel,
-            workerCommand: $workerCommand,
-            configArtifactPath: $configArtifactPath,
-            containerArtifactPath: $containerArtifactPath,
+            workerCommand: $this->procWorkerCommand($config),
+            artifactRoot: self::relativeArtifactRoot($runtimePaths),
         );
     }
 
@@ -298,21 +309,62 @@ final class WorkerServiceFactory
     /**
      * Reads the validated `worker` config root from the active config repository.
      *
-     * The repository may be backed by generated config artifacts. This factory does
-     * not read package config files and does not invent worker defaults.
+     * The repository may be backed by generated config artifacts. This factory
+     * does not read package config files and does not invent worker defaults.
      *
      * @return array<string, mixed>
      */
-    private static function workerConfigRoot(ConfigRepositoryInterface $config): array
-    {
-        $workerConfig = self::requiredConfigValue($config, 'worker');
+    private static function workerConfigRoot(
+        ConfigRepositoryInterface $config,
+    ): array {
+        $workerConfig = self::requiredConfigValue(
+            $config,
+            'worker',
+        );
 
-        if (!\is_array($workerConfig) || \array_is_list($workerConfig)) {
+        if (
+            !\is_array($workerConfig)
+            || \array_is_list($workerConfig)
+        ) {
             throw WorkerStartFailedException::invalidState();
         }
 
         /** @var array<string, mixed> $workerConfig */
         return $workerConfig;
+    }
+
+    private static function relativeArtifactRoot(
+        RuntimePathContext $runtimePaths,
+    ): string {
+        $artifactRoot = $runtimePaths->artifactRoot();
+        $skeletonRoot = $runtimePaths->skeletonRoot();
+
+        if ($artifactRoot === $skeletonRoot) {
+            throw WorkerStartFailedException::invalidState();
+        }
+
+        $prefix = \str_ends_with($skeletonRoot, '/')
+            ? $skeletonRoot
+            : $skeletonRoot . '/';
+
+        if (\str_starts_with($artifactRoot, $prefix)) {
+            return \substr(
+                $artifactRoot,
+                \strlen($prefix),
+            );
+        }
+
+        if (self::isAbsolutePath($artifactRoot)) {
+            throw WorkerStartFailedException::invalidState();
+        }
+
+        return $artifactRoot;
+    }
+
+    private static function isAbsolutePath(string $path): bool
+    {
+        return \str_starts_with($path, '/')
+            || \preg_match('/\A[A-Za-z]:\//', $path) === 1;
     }
 
     private static function phpBinary(): string

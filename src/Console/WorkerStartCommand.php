@@ -26,6 +26,7 @@ use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
+use Coretsia\Platform\Worker\Internal\WorkerManagerResolverInterface;
 use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
@@ -87,15 +88,12 @@ final readonly class WorkerStartCommand implements CommandInterface
     private const string ERROR_CODE_WORKER_COMMAND_INVALID = 'CORETSIA_WORKER_COMMAND_INVALID';
     private const string ERROR_CODE_WORKER_START_FAILED = 'CORETSIA_WORKER_START_FAILED';
 
-    /**
-     * @param \Closure(): WorkerManager $managerFactory
-     */
     public function __construct(
         private ConfigRepositoryInterface $config,
         private ModulePlan $modulePlan,
         private WorkerRuntimeEntrypointGuard $runtimeEntrypointGuard,
         private WorkerServiceFactory $factory,
-        private \Closure $managerFactory,
+        private WorkerManagerResolverInterface $managerResolver,
     ) {
     }
 
@@ -162,7 +160,7 @@ final readonly class WorkerStartCommand implements CommandInterface
 
     private function manager(): WorkerManager
     {
-        return ($this->managerFactory)();
+        return $this->managerResolver->resolve();
     }
 
     private function assertParsedInput(InputInterface $input, OutputInterface $output): bool

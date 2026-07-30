@@ -29,6 +29,8 @@ use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
+use Coretsia\Platform\Worker\Internal\WorkerManagerResolverInterface;
+use Coretsia\Platform\Worker\Manager\WorkerManager;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
@@ -47,7 +49,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
         $input = new ParsedWorkerStartInput(WorkerStartCommand::NAME);
         $output = new RecordingOutput();
 
-        $managerFactoryCalled = false;
+        $managerResolver = new GuardFailureWorkerManagerResolver();
 
         $command = new WorkerStartCommand(
             config: $config,
@@ -56,11 +58,7 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
                 kernelEntrypointGuard: new RuntimeEntrypointGuard(),
             ),
             factory: new WorkerServiceFactory(),
-            managerFactory: static function () use (&$managerFactoryCalled): never {
-                $managerFactoryCalled = true;
-
-                throw new \LogicException('WorkerManager must not be resolved before runtime-driver guard failure.');
-            },
+            managerResolver: $managerResolver,
         );
 
         $exitCode = $command->run($input, $output);
@@ -70,9 +68,10 @@ final class WorkerHttpTaskRequiresRequestHandlerTest extends TestCase
             $input->tokensCalled,
             'WorkerStartCommand MUST NOT parse raw tokens or require platform/cli catalog dispatch.'
         );
-        self::assertFalse(
-            $managerFactoryCalled,
-            'WorkerManager factory MUST NOT be invoked when '
+        self::assertSame(
+            0,
+            $managerResolver->resolveCalls,
+            'WorkerManager resolver MUST NOT be invoked when '
             . 'WorkerRuntimeEntrypointGuard rejects module compatibility.'
         );
 
@@ -602,6 +601,20 @@ final class RecordingOutput implements OutputInterface
             'code' => $code,
             'message' => $message,
         ];
+    }
+}
+
+final class GuardFailureWorkerManagerResolver implements WorkerManagerResolverInterface
+{
+    public int $resolveCalls = 0;
+
+    public function resolve(): WorkerManager
+    {
+        $this->resolveCalls++;
+
+        throw new \LogicException(
+            'WorkerManager must not be resolved before runtime-driver guard failure.'
+        );
     }
 }
 

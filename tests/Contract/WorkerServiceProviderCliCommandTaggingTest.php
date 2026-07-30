@@ -19,6 +19,9 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Tests\Contract;
 
 use Coretsia\Contracts\Cli\Command\CommandInterface;
+use Coretsia\Foundation\Container\Definition\ContainerDefinitionBuilder;
+use Coretsia\Foundation\Container\Definition\ContainerDefinitionContext;
+use Coretsia\Foundation\Container\Definition\ContainerDefinitionKind;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Console\WorkerStatusCommand;
 use Coretsia\Platform\Worker\Console\WorkerStopCommand;
@@ -62,13 +65,23 @@ final class WorkerServiceProviderCliCommandTaggingTest extends TestCase
 
     public function testProviderRegistersWorkerCommandsAsContainerServices(): void
     {
-        $source = self::providerSourceWithoutComments();
+        $classServices = self::providerClassServices();
 
         foreach (self::commandClasses() as $class) {
-            self::assertMatchesRegularExpression(
-                '/->factory\(\s*' . self::shortClass($class) . '::class\s*,/s',
-                $source,
-                'WorkerServiceProvider must register ' . $class . ' as a container service.',
+            self::assertArrayHasKey(
+                $class,
+                $classServices,
+                'WorkerServiceProvider must register '
+                . $class
+                . ' as a container service.',
+            );
+
+            self::assertSame(
+                $class,
+                $classServices[$class],
+                'WorkerServiceProvider must bind '
+                . $class
+                . ' to its canonical command class.',
             );
         }
     }
@@ -208,6 +221,43 @@ final class WorkerServiceProviderCliCommandTaggingTest extends TestCase
                 'Registering WorkerServiceProvider must not perform runtime side effect: ' . $forbidden,
             );
         }
+    }
+
+    /**
+     * @return array<string, class-string>
+     */
+    private static function providerClassServices(): array
+    {
+        $definitions = new ContainerDefinitionBuilder();
+
+        new WorkerServiceProvider()->define(
+            $definitions,
+            new ContainerDefinitionContext([]),
+        );
+
+        $services = [];
+
+        foreach ($definitions->build()->toDescriptorStream() as $operation) {
+            if (
+                ($operation['kind'] ?? null)
+                !== ContainerDefinitionKind::SERVICE_CLASS->value
+            ) {
+                continue;
+            }
+
+            $id = $operation['id'] ?? null;
+            $class = $operation['class'] ?? null;
+
+            if (!\is_string($id) || !\is_string($class)) {
+                throw new \LogicException(
+                    'worker-command-class-service-definition-invalid',
+                );
+            }
+
+            $services[$id] = $class;
+        }
+
+        return $services;
     }
 
     /**

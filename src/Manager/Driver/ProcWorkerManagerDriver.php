@@ -52,9 +52,7 @@ final class ProcWorkerManagerDriver implements WorkerManagerDriverInterface
     private readonly array $workerCommand;
 
     private readonly string $skeletonRoot;
-
-    private readonly string $configArtifactPath;
-    private readonly string $containerArtifactPath;
+    private readonly string $artifactRoot;
 
     /**
      * @var list<resource>
@@ -69,19 +67,13 @@ final class ProcWorkerManagerDriver implements WorkerManagerDriverInterface
         private readonly WorkerStateStore $stateStore,
         private readonly WorkerSocketServer $controlChannel,
         array $workerCommand,
-        string $configArtifactPath,
-        string $containerArtifactPath,
+        string $artifactRoot,
     ) {
         $this->skeletonRoot = self::normalizeSkeletonRoot($skeletonRoot);
         $this->workerCommand = self::normalizeWorkerCommand($workerCommand);
-        $this->configArtifactPath = self::normalizeRelativePath(
-            relativePath: $configArtifactPath,
-            reason: 'proc-worker-config-artifact-path-invalid',
-        );
-
-        $this->containerArtifactPath = self::normalizeRelativePath(
-            relativePath: $containerArtifactPath,
-            reason: 'proc-worker-container-artifact-path-invalid',
+        $this->artifactRoot = self::normalizeRelativePath(
+            relativePath: $artifactRoot,
+            reason: 'proc-worker-artifact-root-invalid',
         );
     }
 
@@ -111,8 +103,7 @@ final class ProcWorkerManagerDriver implements WorkerManagerDriverInterface
                         baseCommand: $this->workerCommand,
                         spec: $spec,
                         workerIndex: $workerIndex,
-                        configArtifactPath: $this->configArtifactPath,
-                        containerArtifactPath: $this->containerArtifactPath,
+                        artifactRoot: $this->artifactRoot,
                     ),
                     cwd: $this->skeletonRoot,
                 );
@@ -181,8 +172,7 @@ final class ProcWorkerManagerDriver implements WorkerManagerDriverInterface
         array $baseCommand,
         WorkerPoolSpec $spec,
         int $workerIndex,
-        string $configArtifactPath,
-        string $containerArtifactPath,
+        string $artifactRoot,
     ): array {
         if ($workerIndex < 0) {
             throw WorkerStartFailedException::startFailed();
@@ -195,8 +185,7 @@ final class ProcWorkerManagerDriver implements WorkerManagerDriverInterface
             '--coretsia-worker-max-requests=' . $spec->maxRequests(),
             '--coretsia-worker-task-type=' . $spec->taskType(),
             '--coretsia-worker-driver=' . self::DRIVER_PROC,
-            '--coretsia-worker-config=' . $configArtifactPath,
-            '--coretsia-worker-container=' . $containerArtifactPath,
+            '--coretsia-worker-artifact-root=' . $artifactRoot,
         ];
     }
 

@@ -18,12 +18,16 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
+use Coretsia\Contracts\Config\ConfigRepositoryInterface;
+use Coretsia\Contracts\Config\ConfigValueSource;
 use Coretsia\Foundation\Serialization\StableJsonDecoder;
 use Coretsia\Foundation\Serialization\StableJsonEncoder;
+use Coretsia\Kernel\Runtime\RuntimePathContext;
 use Coretsia\Platform\Worker\Communication\WorkerSocketServer;
 use Coretsia\Platform\Worker\Exception\WorkerCommunicationFailedException;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Manager\Driver\ProcWorkerManagerDriver;
+use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
 use Coretsia\Platform\Worker\Runtime\WorkerStateStore;
@@ -121,8 +125,7 @@ final class ProcWorkerManagerDriverProcessTest extends TestCase
                         '--coretsia-worker-max-requests=17',
                         '--coretsia-worker-task-type=queue',
                         '--coretsia-worker-driver=proc',
-                        '--coretsia-worker-config=var/cache/worker/config.php',
-                        '--coretsia-worker-container=var/cache/worker/container.php',
+                        '--coretsia-worker-artifact-root=var/cache/worker',
                     ],
                     $argv,
                 );
@@ -135,8 +138,7 @@ final class ProcWorkerManagerDriverProcessTest extends TestCase
                     '--coretsia-worker-max-requests=17',
                     '--coretsia-worker-task-type=queue',
                     '--coretsia-worker-driver=proc',
-                    '--coretsia-worker-config=var/cache/worker/config.php',
-                    '--coretsia-worker-container=var/cache/worker/container.php',
+                    '--coretsia-worker-artifact-root=var/cache/worker',
                 ],
                 \array_slice($argvByWorkerIndex[0], 2),
             );
@@ -381,6 +383,8 @@ final class ProcWorkerManagerDriverProcessTest extends TestCase
             self::assertStringNotContainsString('ApplicationWorker', $source);
             self::assertStringNotContainsString('KernelRuntimeInterface', $source);
             self::assertStringNotContainsString('TaskFactoryInternalInterface', $source);
+            self::assertStringNotContainsString('RuntimePathContext', $source);
+            self::assertStringNotContainsString('BootstrapConfig', $source);
 
             self::assertStringNotContainsString('Platform\\Cli', $source);
             self::assertStringNotContainsString('Coretsia\\Platform\\Cli', $source);
@@ -444,13 +448,22 @@ PHP;
      */
     private function driver(array $workerCommand): ProcWorkerManagerDriver
     {
-        return new ProcWorkerManagerDriver(
-            skeletonRoot: $this->skeletonRoot,
+        return new WorkerServiceFactory()->procWorkerManagerDriver(
+            runtimePaths: new RuntimePathContext(
+                skeletonRoot: $this->skeletonRoot,
+                artifactRoot: $this->skeletonRoot . '/var/cache/worker',
+            ),
             stateStore: self::stateStore(),
             controlChannel: new WorkerSocketServer(),
-            workerCommand: $workerCommand,
-            configArtifactPath: 'var/cache/worker/config.php',
-            containerArtifactPath: 'var/cache/worker/container.php',
+            config: new ProcWorkerManagerDriverArrayConfigRepository(
+                [
+                    'worker' => [
+                        'proc' => [
+                            'command' => $workerCommand,
+                        ],
+                    ],
+                ],
+            ),
         );
     }
 
@@ -787,5 +800,68 @@ PHP;
         }
 
         @\rmdir($path);
+    }
+}
+
+final class ProcWorkerManagerDriverArrayConfigRepository implements ConfigRepositoryInterface
+{
+    /**
+     * @param array<string, mixed> $config
+     */
+    public function __construct(
+        private readonly array $config,
+    ) {
+    }
+
+    public function has(string $keyPath): bool
+    {
+        $missing = new \stdClass();
+
+        return $this->value($keyPath, $missing) !== $missing;
+    }
+
+    public function get(string $keyPath, mixed $default = null): mixed
+    {
+        return $this->value($keyPath, $default);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function all(): array
+    {
+        return $this->config;
+    }
+
+    public function sourceOf(string $keyPath): ?ConfigValueSource
+    {
+        return null;
+    }
+
+    /**
+     * @return list<ConfigValueSource>
+     */
+    public function explain(): array
+    {
+        return [];
+    }
+
+    private function value(string $keyPath, mixed $default): mixed
+    {
+        if ($keyPath === '') {
+            return $this->config;
+        }
+
+        $current = $this->config;
+
+        foreach (\explode('.', $keyPath) as $segment) {
+            if (!\is_array($current) || !\array_key_exists($segment, $current)) {
+                return $default;
+            }
+
+            $current = $current[$segment];
+        }
+
+        return $current;
     }
 }
