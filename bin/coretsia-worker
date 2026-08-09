@@ -31,8 +31,6 @@ use Psr\Container\ContainerInterface;
 \error_reporting(\E_ALL);
 \ini_set('display_errors', '0');
 
-const CORETSIA_WORKER_CHILD_BOOT_ERROR_CODE = 'CORETSIA_WORKER_CHILD_BOOT_FAILED';
-
 /**
  * Local deterministic launcher failure.
  *
@@ -54,23 +52,14 @@ final class CoretsiaWorkerChildBootFailure extends \RuntimeException
 }
 
 /**
- * Emits exactly one normalized line to STDERR.
+ * Terminates after a deterministic internal boot failure.
+ *
+ * The launcher emits no stdout/stderr output. The supervisor observes the
+ * child exit and maps it to package-owned deterministic failures.
  */
-function coretsia_worker_child_emit_line(string $line): void
-{
-    $normalized = \rtrim($line, "\r\n");
-
-    \fwrite(\STDERR, $normalized . "\n");
-}
-
-/**
- * Emits a deterministic safe failure and exits.
- */
-function coretsia_worker_child_fail(string $reason): never
-{
-    coretsia_worker_child_emit_line(CORETSIA_WORKER_CHILD_BOOT_ERROR_CODE);
-    coretsia_worker_child_emit_line($reason);
-
+function coretsia_worker_child_fail(
+    string $_reason,
+): never {
     exit(1);
 }
 
@@ -89,7 +78,9 @@ function coretsia_worker_child_throw(string $reason): never
  *     max_requests: int,
  *     task_type: string,
  *     driver: string,
- *     artifact_root: string
+ *     artifact_root: string,
+ *     readiness_port: int,
+ *     readiness_token: string
  * }
  */
 function coretsia_worker_child_parse_args(array $argv): array
@@ -139,6 +130,8 @@ function coretsia_worker_child_parse_args(array $argv): array
         'coretsia-worker-task-type',
         'coretsia-worker-driver',
         'coretsia-worker-artifact-root',
+        'coretsia-worker-readiness-port',
+        'coretsia-worker-readiness-token',
     ];
 
     foreach ($required as $key) {
@@ -159,6 +152,20 @@ function coretsia_worker_child_parse_args(array $argv): array
     $taskType = $values['coretsia-worker-task-type'];
     $driver = $values['coretsia-worker-driver'];
     $artifactRoot = $values['coretsia-worker-artifact-root'];
+    $readinessPort = coretsia_worker_child_positive_int(
+        $values['coretsia-worker-readiness-port'],
+    );
+    $readinessToken = $values['coretsia-worker-readiness-token'];
+
+    if (
+        $readinessPort > 65535
+        || \preg_match(
+            '/\A[a-f0-9]{64}\z/',
+            $readinessToken,
+        ) !== 1
+    ) {
+        coretsia_worker_child_throw('argv-invalid');
+    }
 
     if ($index >= $count) {
         coretsia_worker_child_throw('argv-invalid');
@@ -168,7 +175,7 @@ function coretsia_worker_child_parse_args(array $argv): array
         coretsia_worker_child_throw('argv-invalid');
     }
 
-    if ($driver !== 'proc') {
+    if ($driver !== 'pcntl' && $driver !== 'proc') {
         coretsia_worker_child_throw('argv-invalid');
     }
 
@@ -183,6 +190,8 @@ function coretsia_worker_child_parse_args(array $argv): array
         'task_type' => $taskType,
         'driver' => $driver,
         'artifact_root' => $artifactRoot,
+        'readiness_port' => $readinessPort,
+        'readiness_token' => $readinessToken,
     ];
 }
 
@@ -230,19 +239,12 @@ function coretsia_worker_child_normalize_skeleton_root(string $root): string
 
 function coretsia_worker_child_is_relative_safe_path(string $path): bool
 {
-    if ($path === '') {
-        return false;
-    }
-
-    if (\trim($path) !== $path) {
-        return false;
-    }
-
-    if (\preg_match('/\s/u', $path) === 1) {
-        return false;
-    }
-
-    if (\str_contains($path, "\0") || \str_contains($path, "\r") || \str_contains($path, "\n")) {
+    if (
+        $path === ''
+        || \trim($path) !== $path
+        || \preg_match('/[\x00-\x1F\x7F]/', $path) === 1
+        || \preg_match('/\s/u', $path) !== 0
+    ) {
         return false;
     }
 
@@ -375,6 +377,88 @@ function coretsia_worker_child_assert_runtime_entrypoint_allowed(
     }
 }
 
+function coretsia_worker_child_ignore_windows_ctrl_event(
+    int $_event,
+): void {
+}
+
+/**
+ * Ensures that supervisor-owned Windows CTRL events do not terminate the
+ * proc child independently of the supervisor lifecycle.
+ */
+function coretsia_worker_child_install_windows_ctrl_isolation(): void
+{
+    if (\PHP_OS_FAMILY !== 'Windows') {
+        return;
+    }
+
+    if (
+        !\function_exists('sapi_windows_set_ctrl_handler')
+        || !\defined('PHP_WINDOWS_EVENT_CTRL_C')
+        || !\defined('PHP_WINDOWS_EVENT_CTRL_BREAK')
+        || !@\sapi_windows_set_ctrl_handler('coretsia_worker_child_ignore_windows_ctrl_event', true)
+    ) {
+        coretsia_worker_child_throw('windows-ctrl-handler-unavailable');
+    }
+}
+
+function coretsia_worker_child_signal_ready(
+    int $port,
+    string $token,
+): void {
+    if (
+        $port < 1
+        || $port > 65535
+        || \preg_match('/\A[a-f0-9]{64}\z/', $token) !== 1
+    ) {
+        coretsia_worker_child_throw('readiness-channel-unavailable');
+    }
+
+    $stream = @\stream_socket_client(
+        'tcp://127.0.0.1:' . $port,
+        $errorCode,
+        $errorMessage,
+        1.0,
+        \STREAM_CLIENT_CONNECT,
+    );
+
+    if (!\is_resource($stream)) {
+        coretsia_worker_child_throw('readiness-channel-unavailable');
+    }
+
+    if (!@\stream_set_timeout($stream, 1, 0)) {
+        @\fclose($stream);
+
+        coretsia_worker_child_throw('readiness-channel-unavailable');
+    }
+
+    $remaining = 'ready:' . $token . "\n";
+
+    try {
+        while ($remaining !== '') {
+            $written = @\fwrite(
+                $stream,
+                $remaining,
+            );
+
+            if (!\is_int($written) || $written < 1) {
+                coretsia_worker_child_throw('readiness-channel-write-failed');
+            }
+
+            $remaining = \substr(
+                $remaining,
+                $written,
+            );
+        }
+
+        if (!@\fflush($stream)) {
+            coretsia_worker_child_throw('readiness-channel-write-failed');
+        }
+    } finally {
+        @\fclose($stream);
+    }
+}
+
 /**
  * @param array{
  *     index: int,
@@ -382,9 +466,12 @@ function coretsia_worker_child_assert_runtime_entrypoint_allowed(
  *     max_requests: int,
  *     task_type: string,
  *     driver: string,
- *     artifact_root: string
+ *     artifact_root: string,
+ *     readiness_port: int,
+ *     readiness_token: non-empty-string
  * } $args
  */
+
 function coretsia_worker_child_assert_args_match_spec(array $args, WorkerPoolSpec $spec): void
 {
     if ($args['count'] !== $spec->workers()) {
@@ -399,7 +486,7 @@ function coretsia_worker_child_assert_args_match_spec(array $args, WorkerPoolSpe
         coretsia_worker_child_throw('worker-args-mismatch');
     }
 
-    if ($args['driver'] !== 'proc' || $spec->driver() !== 'proc') {
+    if ($args['driver'] !== $spec->driver()) {
         coretsia_worker_child_throw('worker-args-mismatch');
     }
 }
@@ -413,6 +500,7 @@ try {
 
     $skeletonRoot = coretsia_worker_child_normalize_skeleton_root($cwd);
     $args = coretsia_worker_child_parse_args($_SERVER['argv'] ?? []);
+    coretsia_worker_child_install_windows_ctrl_isolation();
 
     coretsia_worker_child_require_autoload($skeletonRoot);
 
@@ -439,7 +527,20 @@ try {
     /** @var ApplicationWorker $worker */
     $worker = coretsia_worker_child_service($container, ApplicationWorker::class);
 
-    $worker->run($spec);
+    $worker->assertReady(
+        $spec,
+        $args['index'],
+    );
+
+    coretsia_worker_child_signal_ready(
+        port: $args['readiness_port'],
+        token: $args['readiness_token'],
+    );
+
+    $worker->run(
+        $spec,
+        $args['index'],
+    );
 
     exit(0);
 } catch (CoretsiaWorkerChildBootFailure $exception) {

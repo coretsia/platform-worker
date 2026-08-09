@@ -18,804 +18,275 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Unit;
 
-use Coretsia\Contracts\Context\ContextAccessorInterface;
-use Coretsia\Contracts\Context\ContextKeys;
-use Coretsia\Contracts\Observability\Metrics\MeterPortInterface;
-use Coretsia\Contracts\Observability\Tracing\SpanInterface;
-use Coretsia\Contracts\Observability\Tracing\TracerPortInterface;
-use Coretsia\Contracts\Runtime\KernelRuntimeInterface;
-use Coretsia\Contracts\Runtime\UnitOfWorkHandle;
+use Coretsia\Contracts\Worker\WorkerTaskType;
 use Coretsia\Foundation\Time\Stopwatch;
-use Coretsia\Platform\Worker\Internal\TaskFactoryInternalInterface;
-use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
+use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
+use Coretsia\Platform\Worker\Runtime\WorkerStopSignal;
+use Coretsia\Platform\Worker\Tests\Support\PackageTestCase;
+use Coretsia\Platform\Worker\Tests\Support\RecordingKernelRuntime;
+use Coretsia\Platform\Worker\Tests\Support\RecordingMeter;
+use Coretsia\Platform\Worker\Tests\Support\RecordingTracer;
+use Coretsia\Platform\Worker\Tests\Support\RecordingWorkerTask;
+use Coretsia\Platform\Worker\Tests\Support\RecordingWorkerTaskSource;
+use Coretsia\Platform\Worker\Tests\Support\WorkerSpecFactory;
 use Coretsia\Platform\Worker\Worker\ApplicationWorker;
-use PHPUnit\Framework\TestCase;
 
-final class ApplicationWorkerTest extends TestCase
+final class ApplicationWorkerTest extends PackageTestCase
 {
-    public function testRunOneObtainsTaskWorkOnlyThroughTaskFactoryAndPassesSpecTaskTypeToKernelRuntime(): void
+    public function testReadyPreflightReceivesSafeWorkerContext(): void
     {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
+        $root = $this->temporaryDirectory('worker-application-ready');
+        $source = new RecordingWorkerTaskSource();
+        $worker = $this->worker($root, $source);
+        $spec = WorkerSpecFactory::create([
+            'workers' => 3,
+            'stop_timeout_ms' => 700,
+        ]);
 
-        $taskFactory = new ApplicationWorkerRecordingTaskFactory(
-            supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-            operationId: TaskFactoryInternalInterface::TASK_TYPE_HTTP,
-            result: 'task-result',
-        );
+        $worker->assertReady($spec, 1);
 
-        $kernelRuntime = new ApplicationWorkerRecordingKernelRuntime();
-        $meter = new ApplicationWorkerRecordingMeter();
-
-        $worker = self::worker(
-            taskFactory: $taskFactory,
-            kernelRuntime: $kernelRuntime,
-            meter: $meter,
-        );
-
-        self::assertSame('task-result', $worker->runOne($spec));
-
-        self::assertSame(1, $taskFactory->supportsCalls);
-        self::assertSame(1, $taskFactory->createCalls);
-        self::assertSame(1, $taskFactory->runCalls);
-        self::assertSame([$spec], $taskFactory->supportsSpecs);
-        self::assertSame([$spec], $taskFactory->createSpecs);
-
-        self::assertSame([TaskFactoryInternalInterface::TASK_TYPE_QUEUE], $kernelRuntime->types);
-        self::assertSame([[]], $kernelRuntime->attributes);
-
+        self::assertSame(1, $source->assertReadyCalls);
+        self::assertSame(0, $source->receiveCalls);
         self::assertSame(
             [
-                [
-                    'name' => 'worker.task_total',
-                    'delta' => 1,
-                    'labels' => [
-                        'operation' => TaskFactoryInternalInterface::TASK_TYPE_HTTP,
-                        'outcome' => 'success',
-                    ],
-                ],
+                'worker_index' => 1,
+                'worker_count' => 3,
+                'max_blocking_wait_ms' => 700,
             ],
-            $meter->increments,
+            $source->contexts[0],
         );
     }
 
-    public function testRunOneEmitsSuccessMetricsWithOnlyOperationAndOutcomeLabels(): void
+    public function testReadyRejectsTaskSourceTypeMismatch(): void
     {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
-
-        $meter = new ApplicationWorkerRecordingMeter();
-
-        self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: 'ok',
-            ),
-            meter: $meter,
-        )->runOne($spec);
-
-        self::assertCount(1, $meter->increments);
-        self::assertCount(1, $meter->observations);
-
-        self::assertSame('worker.task_total', $meter->increments[0]['name']);
-        self::assertSame(1, $meter->increments[0]['delta']);
-        self::assertSame(
-            [
-                'operation' => TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                'outcome' => 'success',
-            ],
-            $meter->increments[0]['labels'],
-        );
-
-        self::assertSame('worker.task_duration_ms', $meter->observations[0]['name']);
-        self::assertIsInt($meter->observations[0]['value']);
-        self::assertGreaterThanOrEqual(0, $meter->observations[0]['value']);
-        self::assertSame(
-            [
-                'operation' => TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                'outcome' => 'success',
-            ],
-            $meter->observations[0]['labels'],
-        );
-
-        self::assertSame(['operation', 'outcome'], \array_keys($meter->increments[0]['labels']));
-        self::assertSame(['operation', 'outcome'], \array_keys($meter->observations[0]['labels']));
-    }
-
-    public function testRunOneEmitsFailureMetricsWithOnlyOperationAndOutcomeLabels(): void
-    {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
-
-        $meter = new ApplicationWorkerRecordingMeter();
-        $failure = new \RuntimeException('task-failed');
-
-        $worker = self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                throwable: $failure,
-            ),
-            meter: $meter,
+        $root = $this->temporaryDirectory('worker-application-ready-type-mismatch');
+        $source = new RecordingWorkerTaskSource(
+            WorkerTaskType::Http,
         );
 
         try {
-            $worker->runOne($spec);
+            $this->worker($root, $source)->assertReady(
+                WorkerSpecFactory::create(['task_type' => 'queue']),
+                0,
+            );
+            self::fail('Expected worker task-source type failure.');
+        } catch (WorkerStartFailedException $exception) {
+            self::assertSame(
+                WorkerStartFailedException::REASON_TASK_SOURCE_INVALID,
+                $exception->reason(),
+            );
+        }
 
-            self::fail('Expected task failure was not thrown.');
+        self::assertSame(0, $source->assertReadyCalls);
+        self::assertSame(0, $source->receiveCalls);
+    }
+
+    public function testReadyFailureIsMappedToSafeStartupReason(): void
+    {
+        $root = $this->temporaryDirectory('worker-application-ready-failure');
+        $source = new RecordingWorkerTaskSource();
+        $source->readyFailure = new \RuntimeException('private-ready-failure');
+
+        try {
+            $this->worker($root, $source)->assertReady(
+                WorkerSpecFactory::create(),
+                0,
+            );
+            self::fail('Expected worker startup failure.');
+        } catch (WorkerStartFailedException $exception) {
+            self::assertSame(
+                WorkerStartFailedException::REASON_TASK_SOURCE_NOT_READY,
+                $exception->reason(),
+            );
+            self::assertStringNotContainsString(
+                'private-ready-failure',
+                $exception->getMessage(),
+            );
+        }
+    }
+
+    public function testAcquiredTaskUsesKernelRuntimeSettlementAndCanonicalObservability(): void
+    {
+        $root = $this->temporaryDirectory('worker-application');
+        $kernel = new RecordingKernelRuntime();
+        $task = new RecordingWorkerTask('done');
+        $source = new RecordingWorkerTaskSource();
+        $source->tasks = [$task];
+        $tracer = new RecordingTracer();
+        $meter = new RecordingMeter();
+
+        $worker = new ApplicationWorker(
+            stopSignal: new WorkerStopSignal($root),
+            kernelRuntime: $kernel,
+            taskSource: $source,
+            stopwatch: new Stopwatch(),
+            tracer: $tracer,
+            meter: $meter,
+        );
+
+        $processed = $worker->run(
+            WorkerSpecFactory::create(['max_requests' => 1]),
+            0,
+        );
+
+        self::assertSame(1, $processed);
+        self::assertSame(['queue'], $kernel->types);
+        self::assertSame(1, $kernel->calls);
+        self::assertSame(1, $task->executeCalls);
+        self::assertSame(1, $task->completeCalls);
+        self::assertSame('done', $task->completedResult);
+        self::assertSame(0, $task->failCalls);
+
+        self::assertCount(1, $tracer->spans);
+        self::assertSame('worker.task', $tracer->spans[0]->name());
+        self::assertSame(
+            ['operation' => 'queue', 'outcome' => 'success'],
+            $tracer->spans[0]->attributes,
+        );
+        self::assertSame('worker.task_total', $meter->increments[0]['name']);
+        self::assertSame(
+            ['operation' => 'queue', 'outcome' => 'success'],
+            $meter->increments[0]['labels'],
+        );
+        self::assertSame('worker.task_duration_ms', $meter->observations[0]['name']);
+    }
+
+    public function testTaskFailureUsesFailureSettlementKeepsFailureLabelsAndRethrows(): void
+    {
+        $root = $this->temporaryDirectory('worker-application-failure');
+        $failure = new \RuntimeException('task-failure');
+        $task = new RecordingWorkerTask();
+        $task->executeFailure = $failure;
+        $source = new RecordingWorkerTaskSource();
+        $source->tasks = [$task];
+        $tracer = new RecordingTracer();
+        $meter = new RecordingMeter();
+
+        try {
+            $this->worker($root, $source, new RecordingKernelRuntime(), $tracer, $meter)
+                ->run(WorkerSpecFactory::create(['max_requests' => 1]), 0);
+            self::fail('Expected task failure.');
         } catch (\RuntimeException $exception) {
             self::assertSame($failure, $exception);
         }
 
-        self::assertCount(1, $meter->increments);
-        self::assertCount(1, $meter->observations);
-
-        self::assertSame('worker.task_total', $meter->increments[0]['name']);
-        self::assertSame(1, $meter->increments[0]['delta']);
+        self::assertSame(1, $task->failCalls);
+        self::assertSame($failure, $task->failedWith);
+        self::assertSame(0, $task->completeCalls);
         self::assertSame(
-            [
-                'operation' => TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                'outcome' => 'failure',
-            ],
+            ['operation' => 'queue', 'outcome' => 'failure'],
+            $tracer->spans[0]->attributes,
+        );
+        self::assertSame(
+            ['operation' => 'queue', 'outcome' => 'failure'],
             $meter->increments[0]['labels'],
         );
+    }
 
-        self::assertSame('worker.task_duration_ms', $meter->observations[0]['name']);
-        self::assertIsInt($meter->observations[0]['value']);
-        self::assertGreaterThanOrEqual(0, $meter->observations[0]['value']);
-        self::assertSame(
-            [
-                'operation' => TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                'outcome' => 'failure',
-            ],
-            $meter->observations[0]['labels'],
+    public function testCompleteFailureDoesNotInvokeFailureSettlement(): void
+    {
+        $root = $this->temporaryDirectory('worker-complete-failure');
+        $task = new RecordingWorkerTask('done');
+        $task->completeFailure = new \RuntimeException('private-complete-failure');
+        $source = new RecordingWorkerTaskSource();
+        $source->tasks = [$task];
+
+        self::assertLifecycleReason(
+            WorkerLifecycleFailedException::REASON_TASK_SETTLEMENT_FAILED,
+            fn (): int => $this->worker($root, $source)
+                ->run(WorkerSpecFactory::create(['max_requests' => 1]), 0),
         );
 
-        self::assertSame(['operation', 'outcome'], \array_keys($meter->increments[0]['labels']));
-        self::assertSame(['operation', 'outcome'], \array_keys($meter->observations[0]['labels']));
+        self::assertSame(1, $task->completeCalls);
+        self::assertSame(0, $task->failCalls);
     }
 
-    public function testRunOneMeasuresTaskDurationWithFoundationStopwatch(): void
+    public function testFailureSettlementFailureUsesDeterministicLifecycleReason(): void
     {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
+        $root = $this->temporaryDirectory('worker-fail-settlement-failure');
+        $task = new RecordingWorkerTask();
+        $task->executeFailure = new \RuntimeException('private-task-failure');
+        $task->failFailure = new \RuntimeException('private-settlement-failure');
+        $source = new RecordingWorkerTaskSource();
+        $source->tasks = [$task];
 
-        $meter = new ApplicationWorkerRecordingMeter();
-
-        self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: null,
-            ),
-            stopwatch: new Stopwatch(),
-            meter: $meter,
-        )->runOne($spec);
-
-        self::assertCount(1, $meter->observations);
-        self::assertSame('worker.task_duration_ms', $meter->observations[0]['name']);
-        self::assertIsInt($meter->observations[0]['value']);
-        self::assertGreaterThanOrEqual(0, $meter->observations[0]['value']);
-    }
-
-    public function testTracerFailuresDoNotChangeTaskControlFlowSemantics(): void
-    {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
-
-        $meter = new ApplicationWorkerRecordingMeter();
-
-        $result = self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: 'task-result',
-            ),
-            tracer: new ApplicationWorkerRecordingTracer(
-                throwOnStartSpan: true,
-            ),
-            meter: $meter,
-        )->runOne($spec);
-
-        self::assertSame('task-result', $result);
-        self::assertSame('success', $meter->increments[0]['labels']['outcome']);
-    }
-
-    public function testSpanFailuresDoNotChangeTaskControlFlowSemantics(): void
-    {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
-
-        $meter = new ApplicationWorkerRecordingMeter();
-
-        $result = self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: 'task-result',
-            ),
-            tracer: new ApplicationWorkerRecordingTracer(
-                span: new ApplicationWorkerRecordingSpan(
-                    throwOnSetAttributes: true,
-                    throwOnEnd: true,
-                ),
-            ),
-            meter: $meter,
-        )->runOne($spec);
-
-        self::assertSame('task-result', $result);
-        self::assertSame('success', $meter->increments[0]['labels']['outcome']);
-    }
-
-    public function testMeterFailuresDoNotChangeTaskControlFlowSemantics(): void
-    {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
-
-        $result = self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: 'task-result',
-            ),
-            meter: new ApplicationWorkerRecordingMeter(throwOnEmit: true),
-        )->runOne($spec);
-
-        self::assertSame('task-result', $result);
-    }
-
-    public function testContextReadsAreLimitedToCorrelationIdUowIdAndUowType(): void
-    {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
-
-        $context = new ApplicationWorkerRecordingContext([
-            ContextKeys::CORRELATION_ID => 'correlation-id',
-            ContextKeys::UOW_ID => 'uow-id',
-            ContextKeys::UOW_TYPE => 'queue',
-            'unsafe.extra' => 'must-not-be-read',
-        ]);
-
-        $span = new ApplicationWorkerRecordingSpan();
-
-        self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: null,
-            ),
-            context: $context,
-            tracer: new ApplicationWorkerRecordingTracer(span: $span),
-        )->runOne($spec);
-
-        self::assertSame(
-            [
-                ContextKeys::CORRELATION_ID,
-                ContextKeys::UOW_ID,
-                ContextKeys::UOW_TYPE,
-            ],
-            $context->hasKeys,
-        );
-
-        self::assertSame(
-            [
-                ContextKeys::CORRELATION_ID,
-                ContextKeys::UOW_ID,
-                ContextKeys::UOW_TYPE,
-            ],
-            $context->getKeys,
-        );
-
-        self::assertSame(
-            [
-                [
-                    ContextKeys::CORRELATION_ID => 'correlation-id',
-                    ContextKeys::UOW_ID => 'uow-id',
-                    ContextKeys::UOW_TYPE => 'queue',
-                ],
-                [
-                    'operation' => TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                    'outcome' => 'success',
-                ],
-            ],
-            $span->setAttributesCalls,
+        self::assertLifecycleReason(
+            WorkerLifecycleFailedException::REASON_TASK_SETTLEMENT_FAILED,
+            fn (): int => $this->worker($root, $source)
+                ->run(WorkerSpecFactory::create(['max_requests' => 1]), 0),
         );
     }
 
-    public function testContextReadFailuresDoNotChangeTaskControlFlowSemantics(): void
+    public function testReceiveFailureUsesDeterministicLifecycleReason(): void
     {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
+        $root = $this->temporaryDirectory('worker-receive-failure');
+        $source = new RecordingWorkerTaskSource();
+        $source->receiveFailure = new \RuntimeException('private-receive-failure');
 
-        $meter = new ApplicationWorkerRecordingMeter();
-
-        $result = self::worker(
-            taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: 'task-result',
-            ),
-            context: new ApplicationWorkerRecordingContext(
-                values: [],
-                throwOnHas: true,
-            ),
-            tracer: new ApplicationWorkerRecordingTracer(span: new ApplicationWorkerRecordingSpan()),
-            meter: $meter,
-        )->runOne($spec);
-
-        self::assertSame('task-result', $result);
-        self::assertSame('success', $meter->increments[0]['labels']['outcome']);
+        self::assertLifecycleReason(
+            WorkerLifecycleFailedException::REASON_TASK_SOURCE_RECEIVE_FAILED,
+            fn (): int => $this->worker($root, $source)
+                ->run(WorkerSpecFactory::create(), 0),
+        );
     }
 
-    public function testWorkerUsesReadOnlyContextAccessorAndDoesNotReferenceContextWrites(): void
+    public function testNullWithoutCancellationIsUnexpectedSourceTermination(): void
     {
-        $constructor = new \ReflectionMethod(ApplicationWorker::class, '__construct');
-        $parameters = $constructor->getParameters();
+        $root = $this->temporaryDirectory('worker-source-terminated');
+        $source = new RecordingWorkerTaskSource();
+        $source->tasks = [null];
 
-        self::assertArrayHasKey(3, $parameters);
-
-        $contextType = $parameters[3]->getType();
-
-        self::assertInstanceOf(\ReflectionNamedType::class, $contextType);
-        self::assertSame(ContextAccessorInterface::class, $contextType->getName());
-
-        $file = new \ReflectionClass(ApplicationWorker::class)->getFileName();
-
-        self::assertIsString($file);
-
-        $source = \file_get_contents($file);
-
-        self::assertIsString($source);
-
-        self::assertStringNotContainsString('ContextStoreInterface', $source);
-        self::assertStringNotContainsString('ContextWriterInterface', $source);
-        self::assertStringNotContainsString('->set(', $source);
-        self::assertStringNotContainsString('->put(', $source);
-        self::assertStringNotContainsString('->write(', $source);
-        self::assertStringNotContainsString('->remove(', $source);
-        self::assertStringNotContainsString('->clear(', $source);
+        self::assertLifecycleReason(
+            WorkerLifecycleFailedException::REASON_TASK_SOURCE_TERMINATED,
+            fn (): int => $this->worker($root, $source)
+                ->run(WorkerSpecFactory::create(), 0),
+        );
     }
 
-    public function testWorkerDoesNotEmitStdoutOrStderr(): void
+    public function testObservabilityFailuresDoNotChangeTaskOutcome(): void
     {
-        $spec = self::workerSpec(TaskFactoryInternalInterface::TASK_TYPE_QUEUE);
+        $root = $this->temporaryDirectory('worker-application-noop');
+        $task = new RecordingWorkerTask(42);
+        $source = new RecordingWorkerTaskSource();
+        $source->tasks = [$task];
+        $tracer = new RecordingTracer();
+        $tracer->throwOnStart = true;
+        $meter = new RecordingMeter();
+        $meter->throw = true;
 
-        \ob_start();
-
-        try {
-            self::worker(
-                taskFactory: new ApplicationWorkerRecordingTaskFactory(
-                    supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                    operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                    result: null,
-                ),
-            )->runOne($spec);
-
-            $stdout = \ob_get_clean();
-        } catch (\Throwable $throwable) {
-            \ob_end_clean();
-
-            throw $throwable;
-        }
-
-        self::assertSame('', $stdout);
-
-        $file = new \ReflectionClass(ApplicationWorker::class)->getFileName();
-
-        self::assertIsString($file);
-
-        $source = \file_get_contents($file);
-
-        self::assertIsString($source);
-
-        self::assertStringNotContainsString('echo ', $source);
-        self::assertStringNotContainsString('print ', $source);
-        self::assertStringNotContainsString('var_dump(', $source);
-        self::assertStringNotContainsString('print_r(', $source);
-        self::assertStringNotContainsString('fwrite(STDOUT', $source);
-        self::assertStringNotContainsString('fwrite(STDERR', $source);
-        self::assertStringNotContainsString('error_log(', $source);
+        self::assertSame(
+            1,
+            $this->worker($root, $source, new RecordingKernelRuntime(), $tracer, $meter)
+                ->run(WorkerSpecFactory::create(['max_requests' => 1]), 0),
+        );
+        self::assertSame(42, $task->completedResult);
     }
 
-    private static function worker(
-        ?ApplicationWorkerRecordingTaskFactory $taskFactory = null,
-        ?ApplicationWorkerRecordingKernelRuntime $kernelRuntime = null,
-        ?ApplicationWorkerRecordingContext $context = null,
-        ?Stopwatch $stopwatch = null,
-        ?ApplicationWorkerRecordingTracer $tracer = null,
-        ?ApplicationWorkerRecordingMeter $meter = null,
+    private function worker(
+        string $root,
+        RecordingWorkerTaskSource $source,
+        ?RecordingKernelRuntime $kernel = null,
+        ?RecordingTracer $tracer = null,
+        ?RecordingMeter $meter = null,
     ): ApplicationWorker {
         return new ApplicationWorker(
-            skeletonRoot: __DIR__,
-            kernelRuntime: $kernelRuntime ?? new ApplicationWorkerRecordingKernelRuntime(),
-            taskFactory: $taskFactory ?? new ApplicationWorkerRecordingTaskFactory(
-                supportedTaskType: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                operationId: TaskFactoryInternalInterface::TASK_TYPE_QUEUE,
-                result: null,
-            ),
-            context: $context ?? new ApplicationWorkerRecordingContext(),
-            stopwatch: $stopwatch ?? new Stopwatch(),
-            tracer: $tracer ?? new ApplicationWorkerRecordingTracer(),
-            meter: $meter ?? new ApplicationWorkerRecordingMeter(),
+            stopSignal: new WorkerStopSignal($root),
+            kernelRuntime: $kernel ?? new RecordingKernelRuntime(),
+            taskSource: $source,
+            stopwatch: new Stopwatch(),
+            tracer: $tracer ?? new RecordingTracer(),
+            meter: $meter ?? new RecordingMeter(),
         );
     }
 
-    private static function workerSpec(string $taskType): WorkerPoolSpec
+    private static function assertLifecycleReason(string $reason, callable $operation): void
     {
-        return WorkerPoolSpec::fromConfig(
-            config: [
-                'enabled' => true,
-                'workers' => 1,
-                'max_requests' => 1,
-                'task_type' => $taskType,
-                'socket_path' => 'var/worker/control.sock',
-                'driver' => 'proc',
-                'control' => [
-                    'transport' => 'tcp',
-                ],
-                'tcp' => [
-                    'host' => '127.0.0.1',
-                    'port' => 9501,
-                ],
-                'state_path' => 'var/worker/state.json',
-                'stop_flag_path' => 'var/worker/stop.flag',
-                'stop_timeout_ms' => 100,
-            ],
-            pcntlForkAvailable: false,
-            platformFamily: 'Linux',
-            unixDomainSocketsSupported: false,
-        );
-    }
-}
-
-final class ApplicationWorkerRecordingKernelRuntime implements KernelRuntimeInterface
-{
-    /**
-     * @var list<string>
-     */
-    public array $types = [];
-
-    /**
-     * @var list<array<string, mixed>>
-     */
-    public array $attributes = [];
-
-    public int $runUnitOfWorkCalls = 0;
-
-    public function runUnitOfWork(string $type, callable $body, array $attributes = []): mixed
-    {
-        $this->runUnitOfWorkCalls++;
-        $this->types[] = $type;
-        $this->attributes[] = $attributes;
-
-        return $body();
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function beginUnitOfWork(string $type, array $attributes = []): UnitOfWorkHandle
-    {
-        $this->types[] = $type;
-        $this->attributes[] = $attributes;
-
-        return [];
-    }
-
-    /**
-     * @param array<string, mixed> $context
-     * @param array<string, mixed> $extensions
-     *
-     * @return array<string, mixed>
-     */
-    public function afterUnitOfWork(
-        UnitOfWorkHandle $handle,
-        string $outcome,
-        ?\Throwable $error = null,
-        array $extensions = [],
-    ): array {
-        return [
-            'context' => $context,
-            'outcome' => $outcome,
-            'error' => $error,
-            'extensions' => $extensions,
-        ];
-    }
-}
-
-final class ApplicationWorkerRecordingTaskFactory implements TaskFactoryInternalInterface
-{
-    public int $supportsCalls = 0;
-
-    public int $createCalls = 0;
-
-    public int $operationIdCalls = 0;
-
-    public int $runCalls = 0;
-
-    /**
-     * @var list<WorkerPoolSpec>
-     */
-    public array $supportsSpecs = [];
-
-    /**
-     * @var list<WorkerPoolSpec>
-     */
-    public array $createSpecs = [];
-
-    public function __construct(
-        private readonly string $supportedTaskType,
-        private readonly string $operationId,
-        private readonly mixed $result = null,
-        private readonly ?\Throwable $throwable = null,
-    ) {
-    }
-
-    public function taskType(): string
-    {
-        return $this->supportedTaskType;
-    }
-
-    public function supports(WorkerPoolSpec $spec): bool
-    {
-        $this->supportsCalls++;
-        $this->supportsSpecs[] = $spec;
-
-        return $spec->taskType() === $this->supportedTaskType;
-    }
-
-    public function operationId(WorkerPoolSpec $spec): string
-    {
-        $this->operationIdCalls++;
-
-        if (!$this->supports($spec)) {
-            throw new \RuntimeException('task-factory-unsupported');
-        }
-
-        return $this->operationId;
-    }
-
-    /**
-     * @return array{operation_id: string, run: \Closure(): mixed}
-     */
-    public function create(WorkerPoolSpec $spec): array
-    {
-        $this->createCalls++;
-        $this->createSpecs[] = $spec;
-
-        return [
-            'operation_id' => $this->operationId,
-            'run' => function (): mixed {
-                $this->runCalls++;
-
-                if ($this->throwable !== null) {
-                    throw $this->throwable;
-                }
-
-                return $this->result;
-            },
-        ];
-    }
-}
-
-final class ApplicationWorkerRecordingContext implements ContextAccessorInterface
-{
-    /**
-     * @var list<string>
-     */
-    public array $hasKeys = [];
-
-    /**
-     * @var list<string>
-     */
-    public array $getKeys = [];
-
-    /**
-     * @param array<string, mixed> $values
-     */
-    public function __construct(
-        private readonly array $values = [],
-        private readonly bool $throwOnHas = false,
-        private readonly bool $throwOnGet = false,
-    ) {
-    }
-
-    public function has(string $key): bool
-    {
-        $this->hasKeys[] = $key;
-
-        if ($this->throwOnHas) {
-            throw new \RuntimeException('context-has-failed');
-        }
-
-        return \array_key_exists($key, $this->values);
-    }
-
-    public function get(string $key): mixed
-    {
-        $this->getKeys[] = $key;
-
-        if ($this->throwOnGet) {
-            throw new \RuntimeException('context-get-failed');
-        }
-
-        return $this->values[$key] ?? null;
-    }
-}
-
-final class ApplicationWorkerRecordingTracer implements TracerPortInterface
-{
-    /**
-     * @var list<array{name: string, attributes: array<string, mixed>}>
-     */
-    public array $startedSpans = [];
-
-    public function __construct(
-        private readonly ?ApplicationWorkerRecordingSpan $span = null,
-        private readonly bool $throwOnStartSpan = false,
-    ) {
-    }
-
-    public function startSpan(string $name, array $attributes = []): SpanInterface
-    {
-        if ($this->throwOnStartSpan) {
-            throw new \RuntimeException('tracer-start-span-failed');
-        }
-
-        $this->startedSpans[] = [
-            'name' => $name,
-            'attributes' => $attributes,
-        ];
-
-        return $this->span ?? new ApplicationWorkerRecordingSpan($name);
-    }
-
-    public function inSpan(
-        string $name,
-        callable $callback,
-        array $attributes = [],
-    ): mixed {
-        $span = $this->startSpan($name, $attributes);
-
         try {
-            return $callback($span);
-        } finally {
-            $span->end();
+            $operation();
+            self::fail('Expected worker lifecycle failure.');
+        } catch (WorkerLifecycleFailedException $exception) {
+            self::assertSame($reason, $exception->reason());
         }
-    }
-
-    public function currentSpan(): ?SpanInterface
-    {
-        return $this->span;
-    }
-}
-
-final class ApplicationWorkerRecordingSpan implements SpanInterface
-{
-    /**
-     * @var list<array<string, mixed>>
-     */
-    public array $setAttributesCalls = [];
-
-    /**
-     * @var list<array{key: string, value: mixed}>
-     */
-    public array $setAttributeCalls = [];
-
-    /**
-     * @var list<array{name: string, attributes: array<string, mixed>}>
-     */
-    public array $events = [];
-
-    /**
-     * @var list<array{throwable: \Throwable, attributes: array<string, mixed>}>
-     */
-    public array $exceptions = [];
-
-    public int $endCalls = 0;
-
-    public function __construct(
-        private readonly string $name = 'worker.task',
-        private readonly bool $throwOnSetAttributes = false,
-        private readonly bool $throwOnEnd = false,
-    ) {
-    }
-
-    public function name(): string
-    {
-        return $this->name;
-    }
-
-    public function setAttribute(string $key, mixed $value): void
-    {
-        $this->setAttributeCalls[] = [
-            'key' => $key,
-            'value' => $value,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $attributes
-     */
-    public function setAttributes(array $attributes): void
-    {
-        if ($this->throwOnSetAttributes) {
-            throw new \RuntimeException('span-set-attributes-failed');
-        }
-
-        $this->setAttributesCalls[] = $attributes;
-    }
-
-    /**
-     * @param array<string, mixed> $attributes
-     */
-    public function addEvent(string $name, array $attributes = []): void
-    {
-        $this->events[] = [
-            'name' => $name,
-            'attributes' => $attributes,
-        ];
-    }
-
-    /**
-     * @param array<string, mixed> $attributes
-     */
-    public function recordException(\Throwable $throwable, array $attributes = []): void
-    {
-        $this->exceptions[] = [
-            'throwable' => $throwable,
-            'attributes' => $attributes,
-        ];
-    }
-
-    public function end(): void
-    {
-        if ($this->throwOnEnd) {
-            throw new \RuntimeException('span-end-failed');
-        }
-
-        $this->endCalls++;
-    }
-}
-
-final class ApplicationWorkerRecordingMeter implements MeterPortInterface
-{
-    /**
-     * @var list<array{name: string, delta: int, labels: array<string, string|int|bool>}>
-     */
-    public array $increments = [];
-
-    /**
-     * @var list<array{name: string, value: int, labels: array<string, string|int|bool>}>
-     */
-    public array $observations = [];
-
-    public function __construct(
-        private readonly bool $throwOnEmit = false,
-    ) {
-    }
-
-    /**
-     * @param array<string, string|int|bool> $labels
-     */
-    public function increment(string $name, int $delta = 1, array $labels = []): void
-    {
-        if ($this->throwOnEmit) {
-            throw new \RuntimeException('meter-increment-failed');
-        }
-
-        $this->increments[] = [
-            'name' => $name,
-            'delta' => $delta,
-            'labels' => $labels,
-        ];
-    }
-
-    /**
-     * @param array<string, string|int|bool> $labels
-     */
-    public function observe(string $name, int $value, array $labels = []): void
-    {
-        if ($this->throwOnEmit) {
-            throw new \RuntimeException('meter-observe-failed');
-        }
-
-        $this->observations[] = [
-            'name' => $name,
-            'value' => $value,
-            'labels' => $labels,
-        ];
     }
 }

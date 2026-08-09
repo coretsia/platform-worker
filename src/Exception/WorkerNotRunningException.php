@@ -19,44 +19,21 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Exception;
 
 /**
- * Deterministic worker not-running lifecycle condition.
- *
- * This exception is used when a stop/status operation targets a worker pool
- * that has no readable running-state marker because the pool is not currently
- * running.
- *
- * The public message contains only:
- *
- *     CORETSIA_WORKER_NOT_RUNNING: worker-not-running
- *
- * It MUST NOT expose pid paths, state paths, socket paths, TCP endpoints,
- * absolute paths, payload fragments, headers, tokens, OS error text, previous
- * throwable messages, or environment-specific data.
+ * The generation fence is currently free, so no active or recovering Coretsia
+ * worker generation is owned by a guardian.
  */
 final class WorkerNotRunningException extends WorkerException
 {
     public const string ERROR_CODE = 'CORETSIA_WORKER_NOT_RUNNING';
-
     public const string REASON_NOT_RUNNING = 'worker-not-running';
 
-    /**
-     * @var array<string, true>
-     */
-    private const array REASONS = [
-        self::REASON_NOT_RUNNING => true,
-    ];
-
-    private function __construct(string $reason)
+    private function __construct()
     {
-        if (!isset(self::REASONS[$reason])) {
-            throw new \InvalidArgumentException('worker-not-running-reason-invalid');
-        }
-
-        parent::__construct(self::ERROR_CODE, $reason);
+        parent::__construct(self::ERROR_CODE, self::REASON_NOT_RUNNING);
     }
 
     public static function notRunning(): self
     {
-        return new self(self::REASON_NOT_RUNNING);
+        return new self();
     }
 }

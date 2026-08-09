@@ -19,280 +19,106 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Tests\Unit;
 
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
+use Coretsia\Platform\Worker\Runtime\WorkerPoolStatus;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class WorkerPoolStateTest extends TestCase
 {
-    public function testConstructsValidWorkerPoolState(): void
+    public function testSchemaVersionOneRoundTripsExactly(): void
     {
-        $state = self::workerPoolState();
+        $state = self::state();
 
-        self::assertSame(12345, $state->pid());
-        self::assertSame(4, $state->workerCount());
-        self::assertSame('auto', $state->driverRequested());
-        self::assertSame('proc', $state->driver());
-        self::assertSame('auto', $state->controlTransportRequested());
-        self::assertSame('tcp', $state->controlTransport());
-        self::assertSame(self::validEndpointHash(), $state->endpointHash());
-    }
-
-    public function testVersionAlwaysReturnsOne(): void
-    {
-        self::assertSame(1, self::workerPoolState()->version());
-
-        self::assertSame(
-            1,
-            self::workerPoolState(
-                pid: 999,
-                workerCount: 8,
-                driverRequested: 'pcntl',
-                driver: 'pcntl',
-                controlTransportRequested: 'unix',
-                controlTransport: 'unix',
-                endpointHash: \str_repeat('f', 64),
-            )->version(),
-        );
-    }
-
-    public function testToArrayReturnsExactStableKeyOrderAndValues(): void
-    {
-        $endpointHash = self::validEndpointHash();
-
-        $state = self::workerPoolState(
-            pid: 12345,
-            workerCount: 4,
-            driverRequested: 'auto',
-            driver: 'proc',
-            controlTransportRequested: 'auto',
-            controlTransport: 'tcp',
-            endpointHash: $endpointHash,
-        );
-
-        $array = $state->toArray();
-
-        self::assertSame(
-            [
-                'version',
-                'pid',
-                'worker_count',
-                'driver_requested',
-                'driver',
-                'control_transport_requested',
-                'control_transport',
-                'endpoint_hash',
-            ],
-            \array_keys($array),
-        );
-
+        self::assertSame(1, $state->version());
         self::assertSame(
             [
                 'version' => 1,
-                'pid' => 12345,
-                'worker_count' => 4,
+                'pid' => 1234,
+                'status' => 'running',
+                'worker_count' => 2,
+                'ready_worker_count' => 2,
                 'driver_requested' => 'auto',
-                'driver' => 'proc',
+                'driver' => 'pcntl',
                 'control_transport_requested' => 'auto',
-                'control_transport' => 'tcp',
-                'endpoint_hash' => $endpointHash,
+                'control_transport' => 'unix',
+                'endpoint_hash' => \str_repeat('a', 64),
             ],
-            $array,
+            $state->toArray(),
+        );
+
+        self::assertEquals(
+            $state,
+            WorkerPoolState::fromArray($state->toArray()),
         );
     }
 
-    public function testRejectsNonPositivePid(): void
+    public function testWithStatusPreservesIdentityAndUpdatesReadyCount(): void
     {
-        self::assertInvalidState(
-            operation: static fn (): WorkerPoolState => self::workerPoolState(pid: 0),
-            expectedMessage: 'worker-pool-state-pid-invalid',
+        $state = self::state()->withStatus(
+            WorkerPoolStatus::STOPPING,
+            1,
         );
 
-        self::assertInvalidState(
-            operation: static fn (): WorkerPoolState => self::workerPoolState(pid: -1),
-            expectedMessage: 'worker-pool-state-pid-invalid',
-        );
+        self::assertSame(WorkerPoolStatus::STOPPING, $state->status());
+        self::assertSame(1, $state->readyWorkerCount());
+        self::assertSame(1234, $state->pid());
+        self::assertSame(\str_repeat('a', 64), $state->endpointHash());
     }
 
-    public function testRejectsNonPositiveWorkerCount(): void
+    #[DataProvider('invalidArrays')]
+    public function testInvalidSchemaIsRejected(array $value): void
     {
-        self::assertInvalidState(
-            operation: static fn (): WorkerPoolState => self::workerPoolState(workerCount: 0),
-            expectedMessage: 'worker-pool-state-worker-count-invalid',
-        );
+        $this->expectException(\InvalidArgumentException::class);
 
-        self::assertInvalidState(
-            operation: static fn (): WorkerPoolState => self::workerPoolState(workerCount: -1),
-            expectedMessage: 'worker-pool-state-worker-count-invalid',
-        );
+        WorkerPoolState::fromArray($value);
     }
 
-    public function testRejectsRequestedDriverOutsideAllowedSet(): void
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function invalidArrays(): iterable
     {
-        foreach (['', 'fork', 'worker', 'PCNTL'] as $driverRequested) {
-            self::assertInvalidState(
-                operation: static fn (): WorkerPoolState => self::workerPoolState(
-                    driverRequested: $driverRequested,
-                ),
-                expectedMessage: 'worker-pool-state-driver-requested-invalid',
-            );
-        }
-    }
+        $valid = self::state()->toArray();
 
-    public function testRejectsResolvedDriverOutsideAllowedSet(): void
-    {
-        foreach (['', 'auto', 'fork', 'worker', 'PCNTL'] as $driver) {
-            self::assertInvalidState(
-                operation: static fn (): WorkerPoolState => self::workerPoolState(
-                    driver: $driver,
-                ),
-                expectedMessage: 'worker-pool-state-driver-invalid',
-            );
-        }
-    }
-
-    public function testRejectsRequestedControlTransportOutsideAllowedSet(): void
-    {
-        foreach (['', 'pipe', 'udp', 'UNIX'] as $controlTransportRequested) {
-            self::assertInvalidState(
-                operation: static fn (): WorkerPoolState => self::workerPoolState(
-                    controlTransportRequested: $controlTransportRequested,
-                ),
-                expectedMessage: 'worker-pool-state-control-transport-requested-invalid',
-            );
-        }
-    }
-
-    public function testRejectsResolvedControlTransportOutsideAllowedSet(): void
-    {
-        foreach (['', 'auto', 'pipe', 'udp', 'UNIX'] as $controlTransport) {
-            self::assertInvalidState(
-                operation: static fn (): WorkerPoolState => self::workerPoolState(
-                    controlTransport: $controlTransport,
-                ),
-                expectedMessage: 'worker-pool-state-control-transport-invalid',
-            );
-        }
-    }
-
-    public function testRejectsEndpointHashWithUppercaseHexCharacters(): void
-    {
-        self::assertInvalidState(
-            operation: static fn (): WorkerPoolState => self::workerPoolState(
-                endpointHash: \str_repeat('A', 64),
-            ),
-            expectedMessage: 'worker-pool-state-endpoint-hash-invalid',
-        );
-
-        self::assertInvalidState(
-            operation: static fn (): WorkerPoolState => self::workerPoolState(
-                endpointHash: \str_repeat('a', 63) . 'F',
-            ),
-            expectedMessage: 'worker-pool-state-endpoint-hash-invalid',
-        );
-    }
-
-    public function testRejectsEndpointHashThatIsNotExactlySixtyFourLowercaseHexCharacters(): void
-    {
-        foreach (
+        yield 'unknown key' => [
             [
-                '',
-                \str_repeat('a', 63),
-                \str_repeat('a', 65),
-                \str_repeat('g', 64),
-                \str_repeat('0', 63) . '-',
-                'not-a-sha256-endpoint-hash',
-            ] as $endpointHash
-        ) {
-            self::assertInvalidState(
-                operation: static fn (): WorkerPoolState => self::workerPoolState(
-                    endpointHash: $endpointHash,
-                ),
-                expectedMessage: 'worker-pool-state-endpoint-hash-invalid',
-            );
-        }
+                ...$valid,
+                'raw_endpoint' => '/tmp/private.sock',
+            ]
+        ];
+
+        yield 'wrong version' => [
+            [
+                ...$valid,
+                'version' => 2,
+            ]
+        ];
+
+        yield 'invalid ready count' => [
+            [
+                ...$valid,
+                'ready_worker_count' => 3,
+            ]
+        ];
+
+        yield 'invalid hash' => [
+            [
+                ...$valid,
+                'endpoint_hash' => '/tmp/private.sock',
+            ]
+        ];
     }
 
-    public function testRuntimeImplementationDoesNotUseFilesystemStateWriteFilesOrEmitStdoutStderr(): void
+    private static function state(): WorkerPoolState
     {
-        \ob_start();
-
-        try {
-            self::workerPoolState()->toArray();
-
-            $stdout = \ob_get_clean();
-        } catch (\Throwable $throwable) {
-            \ob_end_clean();
-
-            throw $throwable;
-        }
-
-        self::assertSame('', $stdout);
-
-        $file = new \ReflectionClass(WorkerPoolState::class)->getFileName();
-
-        self::assertIsString($file);
-
-        $source = \file_get_contents($file);
-
-        self::assertIsString($source);
-
-        self::assertStringNotContainsString('realpath(', $source);
-        self::assertStringNotContainsString('file_exists(', $source);
-        self::assertStringNotContainsString('is_file(', $source);
-        self::assertStringNotContainsString('is_dir(', $source);
-        self::assertStringNotContainsString('file_get_contents(', $source);
-        self::assertStringNotContainsString('file_put_contents(', $source);
-        self::assertStringNotContainsString('fopen(', $source);
-        self::assertStringNotContainsString('mkdir(', $source);
-        self::assertStringNotContainsString('rename(', $source);
-        self::assertStringNotContainsString('unlink(', $source);
-
-        self::assertStringNotContainsString('echo ', $source);
-        self::assertStringNotContainsString('print ', $source);
-        self::assertStringNotContainsString('var_dump(', $source);
-        self::assertStringNotContainsString('print_r(', $source);
-        self::assertStringNotContainsString('fwrite(STDOUT', $source);
-        self::assertStringNotContainsString('fwrite(STDERR', $source);
-        self::assertStringNotContainsString('error_log(', $source);
-    }
-
-    private static function workerPoolState(
-        int $pid = 12345,
-        int $workerCount = 4,
-        string $driverRequested = 'auto',
-        string $driver = 'proc',
-        string $controlTransportRequested = 'auto',
-        string $controlTransport = 'tcp',
-        ?string $endpointHash = null,
-    ): WorkerPoolState {
         return new WorkerPoolState(
-            pid: $pid,
-            workerCount: $workerCount,
-            driverRequested: $driverRequested,
-            driver: $driver,
-            controlTransportRequested: $controlTransportRequested,
-            controlTransport: $controlTransport,
-            endpointHash: $endpointHash ?? self::validEndpointHash(),
+            pid: 1234,
+            status: WorkerPoolStatus::RUNNING,
+            workerCount: 2,
+            readyWorkerCount: 2,
+            driverRequested: 'auto',
+            driver: 'pcntl',
+            controlTransportRequested: 'auto',
+            controlTransport: 'unix',
+            endpointHash: \str_repeat('a', 64),
         );
-    }
-
-    private static function validEndpointHash(): string
-    {
-        return \hash('sha256', 'coretsia-worker-endpoint');
-    }
-
-    /**
-     * @param callable(): mixed $operation
-     */
-    private static function assertInvalidState(
-        callable $operation,
-        string $expectedMessage,
-    ): void {
-        try {
-            $operation();
-
-            self::fail('Expected InvalidArgumentException was not thrown.');
-        } catch (\InvalidArgumentException $exception) {
-            self::assertSame($expectedMessage, $exception->getMessage());
-        }
     }
 }

@@ -29,8 +29,10 @@ namespace Coretsia\Platform\Worker\Runtime;
  *
  * @phpstan-type WorkerPoolStateArray array{
  *     version: 1,
- *     pid: int,
- *     worker_count: int,
+ *     pid: positive-int,
+ *     status: 'starting'|'running'|'stopping',
+ *     worker_count: positive-int,
+ *     ready_worker_count: non-negative-int,
  *     driver_requested: 'auto'|'pcntl'|'proc',
  *     driver: 'pcntl'|'proc',
  *     control_transport_requested: 'auto'|'unix'|'tcp',
@@ -41,33 +43,42 @@ namespace Coretsia\Platform\Worker\Runtime;
 final readonly class WorkerPoolState
 {
     private const int VERSION = 1;
-
-    private const string DRIVER_REQUESTED_AUTO = 'auto';
-    private const string DRIVER_PCNTL = 'pcntl';
-    private const string DRIVER_PROC = 'proc';
-
-    private const string CONTROL_TRANSPORT_REQUESTED_AUTO = 'auto';
-    private const string CONTROL_TRANSPORT_UNIX = 'unix';
-    private const string CONTROL_TRANSPORT_TCP = 'tcp';
-
     private const string ENDPOINT_HASH_PATTERN = '/\A[a-f0-9]{64}\z/';
 
     public function __construct(
         private int $pid,
+        private WorkerPoolStatus $status,
         private int $workerCount,
+        private int $readyWorkerCount,
         private string $driverRequested,
         private string $driver,
         private string $controlTransportRequested,
         private string $controlTransport,
         private string $endpointHash,
     ) {
-        self::assertPositiveInt($pid, 'worker-pool-state-pid-invalid');
-        self::assertPositiveInt($workerCount, 'worker-pool-state-worker-count-invalid');
-        self::assertRequestedDriver($driverRequested);
-        self::assertResolvedDriver($driver);
-        self::assertRequestedControlTransport($controlTransportRequested);
-        self::assertResolvedControlTransport($controlTransport);
-        self::assertEndpointHash($endpointHash);
+        if ($pid < 1 || $workerCount < 1 || $readyWorkerCount < 0 || $readyWorkerCount > $workerCount) {
+            throw new \InvalidArgumentException('worker-pool-state-count-invalid');
+        }
+
+        if (!\in_array($driverRequested, ['auto', 'pcntl', 'proc'], true) || !\in_array(
+            $driver,
+            ['pcntl', 'proc'],
+            true
+        )) {
+            throw new \InvalidArgumentException('worker-pool-state-driver-invalid');
+        }
+
+        if (!\in_array($controlTransportRequested, ['auto', 'unix', 'tcp'], true) || !\in_array(
+            $controlTransport,
+            ['unix', 'tcp'],
+            true
+        )) {
+            throw new \InvalidArgumentException('worker-pool-state-control-transport-invalid');
+        }
+
+        if (\preg_match(self::ENDPOINT_HASH_PATTERN, $endpointHash) !== 1) {
+            throw new \InvalidArgumentException('worker-pool-state-endpoint-hash-invalid');
+        }
     }
 
     public function version(): int
@@ -80,9 +91,19 @@ final readonly class WorkerPoolState
         return $this->pid;
     }
 
+    public function status(): WorkerPoolStatus
+    {
+        return $this->status;
+    }
+
     public function workerCount(): int
     {
         return $this->workerCount;
+    }
+
+    public function readyWorkerCount(): int
+    {
+        return $this->readyWorkerCount;
     }
 
     public function driverRequested(): string
@@ -110,6 +131,21 @@ final readonly class WorkerPoolState
         return $this->endpointHash;
     }
 
+    public function withStatus(WorkerPoolStatus $status, int $readyWorkerCount): self
+    {
+        return new self(
+            pid: $this->pid,
+            status: $status,
+            workerCount: $this->workerCount,
+            readyWorkerCount: $readyWorkerCount,
+            driverRequested: $this->driverRequested,
+            driver: $this->driver,
+            controlTransportRequested: $this->controlTransportRequested,
+            controlTransport: $this->controlTransport,
+            endpointHash: $this->endpointHash,
+        );
+    }
+
     /**
      * Returns the canonical safe `worker.state.json` shape.
      *
@@ -122,7 +158,9 @@ final readonly class WorkerPoolState
         return [
             'version' => self::VERSION,
             'pid' => $this->pid,
+            'status' => $this->status->value,
             'worker_count' => $this->workerCount,
+            'ready_worker_count' => $this->readyWorkerCount,
             'driver_requested' => $this->driverRequested,
             'driver' => $this->driver,
             'control_transport_requested' => $this->controlTransportRequested,
@@ -131,75 +169,59 @@ final readonly class WorkerPoolState
         ];
     }
 
-    private static function assertPositiveInt(int $value, string $reason): void
+    /** @param array<string, mixed> $value */
+    public static function fromArray(array $value): self
     {
-        if ($value < 1) {
-            throw new \InvalidArgumentException($reason);
-        }
-    }
+        $keys = [
+            'control_transport',
+            'control_transport_requested',
+            'driver',
+            'driver_requested',
+            'endpoint_hash',
+            'pid',
+            'ready_worker_count',
+            'status',
+            'version',
+            'worker_count',
+        ];
+        $actual = \array_keys($value);
+        \sort($actual, \SORT_STRING);
 
-    private static function assertRequestedDriver(string $driver): void
-    {
-        if (!\in_array(
-            $driver,
+        if ($actual !== $keys || ($value['version'] ?? null) !== self::VERSION) {
+            throw new \InvalidArgumentException('worker-pool-state-schema-invalid');
+        }
+
+        foreach (['pid', 'worker_count', 'ready_worker_count'] as $key) {
+            if (!\is_int($value[$key])) {
+                throw new \InvalidArgumentException('worker-pool-state-schema-invalid');
+            }
+        }
+
+        foreach (
             [
-                self::DRIVER_REQUESTED_AUTO,
-                self::DRIVER_PCNTL,
-                self::DRIVER_PROC,
-            ],
-            true,
-        )) {
-            throw new \InvalidArgumentException('worker-pool-state-driver-requested-invalid');
+                'status',
+                'driver_requested',
+                'driver',
+                'control_transport_requested',
+                'control_transport',
+                'endpoint_hash'
+            ] as $key
+        ) {
+            if (!\is_string($value[$key])) {
+                throw new \InvalidArgumentException('worker-pool-state-schema-invalid');
+            }
         }
-    }
 
-    private static function assertResolvedDriver(string $driver): void
-    {
-        if (!\in_array(
-            $driver,
-            [
-                self::DRIVER_PCNTL,
-                self::DRIVER_PROC,
-            ],
-            true,
-        )) {
-            throw new \InvalidArgumentException('worker-pool-state-driver-invalid');
-        }
-    }
-
-    private static function assertRequestedControlTransport(string $transport): void
-    {
-        if (!\in_array(
-            $transport,
-            [
-                self::CONTROL_TRANSPORT_REQUESTED_AUTO,
-                self::CONTROL_TRANSPORT_UNIX,
-                self::CONTROL_TRANSPORT_TCP,
-            ],
-            true,
-        )) {
-            throw new \InvalidArgumentException('worker-pool-state-control-transport-requested-invalid');
-        }
-    }
-
-    private static function assertResolvedControlTransport(string $transport): void
-    {
-        if (!\in_array(
-            $transport,
-            [
-                self::CONTROL_TRANSPORT_UNIX,
-                self::CONTROL_TRANSPORT_TCP,
-            ],
-            true,
-        )) {
-            throw new \InvalidArgumentException('worker-pool-state-control-transport-invalid');
-        }
-    }
-
-    private static function assertEndpointHash(string $endpointHash): void
-    {
-        if (\preg_match(self::ENDPOINT_HASH_PATTERN, $endpointHash) !== 1) {
-            throw new \InvalidArgumentException('worker-pool-state-endpoint-hash-invalid');
-        }
+        return new self(
+            pid: $value['pid'],
+            status: WorkerPoolStatus::from($value['status']),
+            workerCount: $value['worker_count'],
+            readyWorkerCount: $value['ready_worker_count'],
+            driverRequested: $value['driver_requested'],
+            driver: $value['driver'],
+            controlTransportRequested: $value['control_transport_requested'],
+            controlTransport: $value['control_transport'],
+            endpointHash: $value['endpoint_hash'],
+        );
     }
 }

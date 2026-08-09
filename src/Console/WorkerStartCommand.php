@@ -25,11 +25,10 @@ use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
-use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
-use Coretsia\Platform\Worker\Internal\WorkerManagerResolverInterface;
-use Coretsia\Platform\Worker\Manager\WorkerManager;
+use Coretsia\Platform\Worker\Exception\WorkerException;
+use Coretsia\Platform\Worker\Internal\WorkerSupervisorInterface;
+use Coretsia\Platform\Worker\Internal\WorkerSupervisorResolverInterface;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
-use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
 use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 
@@ -44,17 +43,18 @@ use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
  * - it does not depend on platform/cli;
  * - it does not require full binary/catalog dispatch.
  *
- * Runtime entrypoint compatibility is checked before WorkerManager::start().
- * WorkerManager is resolved lazily so resolving this command from the container
- * cannot construct process drivers, ApplicationWorker, TaskFactoryInternalInterface,
- * or WorkerPoolSpec before the command run path has enforced the required ordering.
+ * Runtime entrypoint compatibility is checked before the foreground
+ * WorkerSupervisor is resolved. The supervisor remains lazy so resolving this
+ * command from the container cannot construct process drivers, ApplicationWorker,
+ * WorkerTaskSourceInterface, or lifecycle resources before the command run
+ * path has enforced the required ordering.
  *
  * Guard failures are surfaced using the original runtime driver matrix error
  * code and reason token, not translated into worker-specific conflict codes.
  *
  * This class must not:
  *
- * - resolve RequestHandlerInterface;
+ * - resolve or instantiate task-source services directly;
  * - fork;
  * - call proc_open();
  * - open sockets;
@@ -71,29 +71,18 @@ final readonly class WorkerStartCommand implements CommandInterface
     public const string GROUP = 'worker';
     public const bool HIDDEN = false;
     public const string MODE = 'none';
-
-    /**
-     * @var list<array<string, mixed>>
-     */
     public const array ARGUMENTS = [];
-
-    /**
-     * @var list<array<string, mixed>>
-     */
     public const array OPTIONS = [];
 
-    private const int EXIT_SUCCESS = 0;
-    private const int EXIT_FAILURE = 1;
-
-    private const string ERROR_CODE_WORKER_COMMAND_INVALID = 'CORETSIA_WORKER_COMMAND_INVALID';
-    private const string ERROR_CODE_WORKER_START_FAILED = 'CORETSIA_WORKER_START_FAILED';
+    private const string ERROR_CODE_INVALID = 'CORETSIA_WORKER_COMMAND_INVALID';
+    private const string ERROR_CODE_FAILED = 'CORETSIA_WORKER_START_FAILED';
 
     public function __construct(
         private ConfigRepositoryInterface $config,
         private ModulePlan $modulePlan,
         private WorkerRuntimeEntrypointGuard $runtimeEntrypointGuard,
         private WorkerServiceFactory $factory,
-        private WorkerManagerResolverInterface $managerResolver,
+        private WorkerSupervisorResolverInterface $supervisorResolver,
     ) {
     }
 
@@ -102,115 +91,69 @@ final readonly class WorkerStartCommand implements CommandInterface
         return self::NAME;
     }
 
-    public function run(InputInterface $input, OutputInterface $output): int
-    {
-        if (!$this->assertParsedInput($input, $output)) {
-            return self::EXIT_FAILURE;
+    public function run(
+        InputInterface $input,
+        OutputInterface $output,
+    ): int {
+        if (!$this->validInput($input, $output)) {
+            return 1;
         }
-
         try {
             $spec = $this->factory->workerPoolSpec($this->config);
-
-            $this->assertRuntimeEntrypointAllowed($spec);
-
-            $state = $this->manager()->start($spec);
-
-            $output->json(self::startSummary($state));
-
-            return self::EXIT_SUCCESS;
-        } catch (RuntimeDriverConflictException $exception) {
-            $output->error(
-                $exception->errorCode(),
-                $exception->reason(),
+            $this->runtimeEntrypointGuard->assertEntrypointAllowed(
+                config: $this->config,
+                modulePlan: $this->modulePlan,
+                spec: $spec,
             );
 
-            return self::EXIT_FAILURE;
-        } catch (RuntimeDriverInvalidConfigException $exception) {
-            $output->error(
-                $exception->errorCode(),
-                $exception->reason(),
+            return $this->supervisor()->run(
+                $spec,
+                static function (WorkerPoolState $state) use ($output): void {
+                    $output->json(self::summary($state));
+                },
             );
-
-            return self::EXIT_FAILURE;
-        } catch (WorkerStartFailedException $exception) {
-            $output->error(
-                $exception->errorCode(),
-                $exception->reason(),
-            );
-
-            return self::EXIT_FAILURE;
+        } catch (RuntimeDriverConflictException|RuntimeDriverInvalidConfigException $exception) {
+            $output->error($exception->errorCode(), $exception->reason());
+        } catch (WorkerException $exception) {
+            $output->error($exception->errorCode(), $exception->reason());
         } catch (\Throwable) {
-            $output->error(
-                self::ERROR_CODE_WORKER_START_FAILED,
-                'worker-start-failed',
-            );
-
-            return self::EXIT_FAILURE;
+            $output->error(self::ERROR_CODE_FAILED, 'worker-start-failed');
         }
+        return 1;
     }
 
-    private function assertRuntimeEntrypointAllowed(WorkerPoolSpec $spec): void
+    private function supervisor(): WorkerSupervisorInterface
     {
-        $this->runtimeEntrypointGuard->assertEntrypointAllowed(
-            config: $this->config,
-            modulePlan: $this->modulePlan,
-            spec: $spec,
-        );
+        return $this->supervisorResolver->resolve();
     }
 
-    private function manager(): WorkerManager
-    {
-        return $this->managerResolver->resolve();
-    }
-
-    private function assertParsedInput(InputInterface $input, OutputInterface $output): bool
-    {
+    private function validInput(
+        InputInterface $input,
+        OutputInterface $output,
+    ): bool {
         if ($input->commandName() !== self::NAME) {
-            $output->error(
-                self::ERROR_CODE_WORKER_COMMAND_INVALID,
-                'worker-command-name-invalid',
-            );
-
+            $output->error(self::ERROR_CODE_INVALID, 'worker-command-name-invalid');
             return false;
         }
-
         if ($input->arguments() !== []) {
-            $output->error(
-                self::ERROR_CODE_WORKER_COMMAND_INVALID,
-                'worker-start-arguments-not-supported',
-            );
-
+            $output->error(self::ERROR_CODE_INVALID, 'worker-start-arguments-not-supported');
             return false;
         }
-
         if ($input->options() !== []) {
-            $output->error(
-                self::ERROR_CODE_WORKER_COMMAND_INVALID,
-                'worker-start-options-not-supported',
-            );
-
+            $output->error(self::ERROR_CODE_INVALID, 'worker-start-options-not-supported');
             return false;
         }
-
         return true;
     }
 
-    /**
-     * @return array{
-     *     status: 'started',
-     *     pid: int,
-     *     worker_count: int,
-     *     driver: string,
-     *     control_transport: string,
-     *     endpoint_hash: string
-     * }
-     */
-    private static function startSummary(WorkerPoolState $state): array
+    /** @return array<string, int|string> */
+    private static function summary(WorkerPoolState $state): array
     {
         return [
-            'status' => 'started',
+            'status' => $state->status()->value,
             'pid' => $state->pid(),
             'worker_count' => $state->workerCount(),
+            'ready_worker_count' => $state->readyWorkerCount(),
             'driver' => $state->driver(),
             'control_transport' => $state->controlTransport(),
             'endpoint_hash' => $state->endpointHash(),

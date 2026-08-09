@@ -27,7 +27,12 @@ declare(strict_types=1);
  * - task type is limited to `queue` or `http`;
  * - process driver selection is limited to `auto`, `pcntl`, or `proc`;
  * - control transport selection is limited to `auto`, `unix`, or `tcp`;
- * - runtime paths must be relative safe paths;
+ * - configurable runtime paths must be relative safe paths, must not use the
+ *   `skeleton/` prefix, and must not contain `@`-prefixed segments;
+ * - lifecycle lock and locator paths are package-owned and are rejected as
+ *   mutable config keys by the strict root shape;
+ * - guardian and generation-fence ownership are package-owned invariants; no
+ *   mutable `worker.guardian.*` configuration surface exists;
  * - numeric keys must be integers only; floats are rejected by `int` type rules;
  * - TCP port `0` is rejected through `min = 1`.
  *
@@ -70,6 +75,12 @@ return [
         'socket_path' => [
             'required' => true,
             'type' => 'relative-safe-path',
+            'forbiddenPrefixes' => [
+                'skeleton/',
+            ],
+            'forbiddenSegmentPrefixes' => [
+                '@',
+            ],
         ],
         'driver' => [
             'required' => true,
@@ -117,7 +128,10 @@ return [
             'keys' => [
                 'host' => [
                     'required' => true,
-                    'type' => 'non-empty-string',
+                    'type' => 'string',
+                    'allowedValues' => [
+                        '127.0.0.1',
+                    ],
                 ],
                 'port' => [
                     'required' => true,
@@ -130,15 +144,40 @@ return [
         'state_path' => [
             'required' => true,
             'type' => 'relative-safe-path',
+            'forbiddenPrefixes' => [
+                'skeleton/',
+            ],
+            'forbiddenSegmentPrefixes' => [
+                '@',
+            ],
         ],
         'stop_flag_path' => [
             'required' => true,
             'type' => 'relative-safe-path',
+            'forbiddenPrefixes' => [
+                'skeleton/',
+            ],
+            'forbiddenSegmentPrefixes' => [
+                '@',
+            ],
+        ],
+        'start_timeout_ms' => [
+            'required' => true,
+            'type' => 'int',
+            'min' => 1,
+            'max' => 86_400_000,
         ],
         'stop_timeout_ms' => [
             'required' => true,
             'type' => 'int',
-            'min' => 0,
+            'min' => 1,
+            'max' => 86_400_000,
+        ],
+        'force_kill_timeout_ms' => [
+            'required' => true,
+            'type' => 'int',
+            'min' => 1,
+            'max' => 86_400_000,
         ],
     ],
 ];

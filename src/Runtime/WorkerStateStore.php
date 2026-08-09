@@ -20,21 +20,25 @@ namespace Coretsia\Platform\Worker\Runtime;
 
 use Coretsia\Foundation\Serialization\StableJsonDecoder;
 use Coretsia\Foundation\Serialization\StableJsonEncoder;
-use Coretsia\Platform\Worker\Exception\WorkerNotRunningException;
-use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
+use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 
 /**
  * Stable worker pool state JSON store.
  *
  * This is the only platform/worker runtime class allowed to write
  * `worker.state.json`.
+ * State is supervisor-owned diagnostic data only; it is never the liveness or
+ * generation-ownership authority. The guardian-owned `worker.lock` fence is the
+ * authoritative active/recovering generation boundary.
  *
  * Persisted state is intentionally redacted and contains only the cemented
  * safe schema:
  *
  * - version
  * - pid
+ * - status
  * - worker_count
+ * - ready_worker_count
  * - driver_requested
  * - driver
  * - control_transport_requested
@@ -50,45 +54,39 @@ use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
  */
 final readonly class WorkerStateStore
 {
-    private const int SCHEMA_VERSION = 1;
-
-    /**
-     * @var array<string, true>
-     */
-    private const array STATE_KEYS = [
-        'version' => true,
-        'pid' => true,
-        'worker_count' => true,
-        'driver_requested' => true,
-        'driver' => true,
-        'control_transport_requested' => true,
-        'control_transport' => true,
-        'endpoint_hash' => true,
-    ];
-
     public function __construct(
+        private string $skeletonRoot,
         private StableJsonEncoder $encoder,
         private StableJsonDecoder $decoder,
     ) {
+        if ($skeletonRoot === '' || \str_contains($skeletonRoot, "\0")) {
+            throw new \InvalidArgumentException('worker-state-root-invalid');
+        }
     }
 
     /**
      * Creates a safe runtime state DTO from an already-normalized pool spec.
      */
-    public function createState(WorkerPoolSpec $spec, int $pid): WorkerPoolState
-    {
+    public function createState(
+        WorkerPoolSpec $spec,
+        int $pid,
+        WorkerPoolStatus $status,
+        int $readyWorkerCount,
+    ): WorkerPoolState {
         try {
             return new WorkerPoolState(
                 pid: $pid,
+                status: $status,
                 workerCount: $spec->workers(),
+                readyWorkerCount: $readyWorkerCount,
                 driverRequested: $spec->driverRequested(),
                 driver: $spec->driver(),
                 controlTransportRequested: $spec->controlTransportRequested(),
                 controlTransport: $spec->controlTransport(),
                 endpointHash: self::endpointHash($spec),
             );
-        } catch (\InvalidArgumentException) {
-            throw WorkerStartFailedException::invalidState();
+        } catch (\Throwable) {
+            throw WorkerLifecycleFailedException::invalidState();
         }
     }
 
@@ -111,173 +109,89 @@ final readonly class WorkerStateStore
      * `$skeletonRoot` is used only for filesystem path resolution. It is never
      * stored, logged, returned, or included in exception messages.
      */
-    public function write(string $skeletonRoot, WorkerPoolSpec $spec, WorkerPoolState $state): void
+    public function write(WorkerPoolSpec $spec, WorkerPoolState $state): void
     {
-        $statePath = self::statePath($skeletonRoot, $spec);
-
         try {
-            $bytes = $this->encoder->encode($state->toArray());
+            $bytes = $this->encoder->encodeMap($state->toArray());
         } catch (\Throwable) {
-            throw WorkerStartFailedException::invalidState();
+            throw WorkerLifecycleFailedException::invalidState();
         }
 
-        self::writeBytes($statePath, $bytes);
+        $path = $this->path($spec);
+        $dir = \dirname($path);
+        if (!\is_dir($dir) && !@\mkdir($dir, 0777, true) && !\is_dir($dir)) {
+            throw WorkerLifecycleFailedException::invalidState();
+        }
+
+        $tmp = $this->temporaryPath($spec);
+
+        if (@\file_put_contents($tmp, $bytes, \LOCK_EX) === false || !@\rename($tmp, $path)) {
+            @\unlink($tmp);
+
+            throw WorkerLifecycleFailedException::invalidState();
+        }
     }
 
     /**
-     * Reads and validates `worker.state.json`.
+     * Reads and validates the optional diagnostic state snapshot.
      *
-     * Missing state marker means the worker pool is not currently running.
+     * A missing snapshot returns null and MUST NOT be interpreted as the
+     * authoritative liveness signal. WorkerLifecycleLock is authoritative only
+     * for active or recovering worker-generation ownership. Live supervisor
+     * availability is established through the lifecycle locator and authenticated
+     * control channel.
      *
      * Existing but unreadable state, invalid JSON, non-map JSON, schema drift,
      * forbidden extra keys, invalid value types, and invalid value domains all
      * map to the same deterministic safe invalid-state failure.
      */
-    public function read(string $skeletonRoot, WorkerPoolSpec $spec): WorkerPoolState
+    public function readSnapshot(WorkerPoolSpec $spec): ?WorkerPoolState
     {
-        $statePath = self::statePath($skeletonRoot, $spec);
-        $contents = self::readBytes($statePath);
+        $path = $this->path($spec);
 
-        try {
-            $state = $this->decoder->decodeMap($contents);
-        } catch (\Throwable) {
-            throw WorkerStartFailedException::invalidState();
+        if (!@\file_exists($path)) {
+            return null;
         }
 
-        self::assertExactSchema($state);
+        if (!@\is_file($path)) {
+            throw WorkerLifecycleFailedException::invalidState();
+        }
 
-        $version = self::requiredInt($state, 'version');
-        if ($version !== self::SCHEMA_VERSION) {
-            throw WorkerStartFailedException::invalidState();
+        $bytes = @\file_get_contents($path);
+
+        if (!\is_string($bytes)) {
+            throw WorkerLifecycleFailedException::invalidState();
         }
 
         try {
-            return new WorkerPoolState(
-                pid: self::requiredInt($state, 'pid'),
-                workerCount: self::requiredInt($state, 'worker_count'),
-                driverRequested: self::requiredString($state, 'driver_requested'),
-                driver: self::requiredString($state, 'driver'),
-                controlTransportRequested: self::requiredString($state, 'control_transport_requested'),
-                controlTransport: self::requiredString($state, 'control_transport'),
-                endpointHash: self::requiredString($state, 'endpoint_hash'),
+            return WorkerPoolState::fromArray(
+                $this->decoder->decodeMap($bytes),
             );
-        } catch (\InvalidArgumentException) {
-            throw WorkerStartFailedException::invalidState();
+        } catch (\Throwable) {
+            throw WorkerLifecycleFailedException::invalidState();
         }
     }
 
-    /**
-     * @param array<string, mixed> $state
-     */
-    private static function assertExactSchema(array $state): void
+    public function delete(WorkerPoolSpec $spec): void
     {
-        foreach (\array_keys($state) as $key) {
-            if (!isset(self::STATE_KEYS[$key])) {
-                throw WorkerStartFailedException::invalidState();
+        foreach ([$this->path($spec), $this->temporaryPath($spec)] as $path) {
+            if (!@\file_exists($path)) {
+                continue;
             }
-        }
 
-        foreach (\array_keys(self::STATE_KEYS) as $key) {
-            if (!\array_key_exists($key, $state)) {
-                throw WorkerStartFailedException::invalidState();
+            if (!@\is_file($path) || !@\unlink($path)) {
+                throw WorkerLifecycleFailedException::runtimeCleanupFailed();
             }
         }
     }
 
-    /**
-     * @param array<string, mixed> $state
-     */
-    private static function requiredInt(array $state, string $key): int
+    private function temporaryPath(WorkerPoolSpec $spec): string
     {
-        if (!\array_key_exists($key, $state) || !\is_int($state[$key])) {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        return $state[$key];
+        return $this->path($spec) . '.tmp';
     }
 
-    /**
-     * @param array<string, mixed> $state
-     */
-    private static function requiredString(array $state, string $key): string
+    private function path(WorkerPoolSpec $spec): string
     {
-        if (!\array_key_exists($key, $state) || !\is_string($state[$key])) {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        if ($state[$key] === '') {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        return $state[$key];
-    }
-
-    private static function statePath(string $skeletonRoot, WorkerPoolSpec $spec): string
-    {
-        $skeletonRoot = \trim($skeletonRoot);
-
-        if ($skeletonRoot === '' || \str_contains($skeletonRoot, "\0")) {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        $root = \rtrim(\str_replace('\\', '/', $skeletonRoot), '/');
-
-        if ($root === '') {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        return $root . '/' . $spec->statePath();
-    }
-
-    private static function readBytes(string $path): string
-    {
-        \set_error_handler(static fn (): bool => true);
-
-        try {
-            if (!\file_exists($path)) {
-                throw WorkerNotRunningException::notRunning();
-            }
-
-            if (!\is_file($path)) {
-                throw WorkerStartFailedException::invalidState();
-            }
-
-            $contents = \file_get_contents($path);
-        } finally {
-            \restore_error_handler();
-        }
-
-        if (!\is_string($contents)) {
-            throw WorkerStartFailedException::invalidState();
-        }
-
-        return $contents;
-    }
-
-    private static function writeBytes(string $path, string $bytes): void
-    {
-        $dir = \dirname($path);
-
-        \set_error_handler(static fn (): bool => true);
-
-        try {
-            if (!\is_dir($dir) && !\mkdir($dir, 0777, true) && !\is_dir($dir)) {
-                throw WorkerStartFailedException::invalidState();
-            }
-
-            $tmpPath = $path . '.tmp';
-
-            if (\file_put_contents($tmpPath, $bytes, \LOCK_EX) === false) {
-                throw WorkerStartFailedException::invalidState();
-            }
-
-            if (!\rename($tmpPath, $path)) {
-                @\unlink($tmpPath);
-
-                throw WorkerStartFailedException::invalidState();
-            }
-        } finally {
-            \restore_error_handler();
-        }
+        return \rtrim(\str_replace('\\', '/', $this->skeletonRoot), '/') . '/' . $spec->statePath();
     }
 }

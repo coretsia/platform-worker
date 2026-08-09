@@ -1,0 +1,146 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Coretsia Framework (Monorepo)
+ *
+ * Project: Coretsia Framework (Monorepo)
+ * Authors: Vladyslav Mudrichenko and contributors
+ * Copyright (c) 2026 Vladyslav Mudrichenko
+ *
+ * SPDX-FileCopyrightText: 2026 Vladyslav Mudrichenko
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * For contributors list, see git history.
+ * See LICENSE and NOTICE in the project root for full license information.
+ */
+
+use Coretsia\Foundation\Serialization\StableJsonDecoder;
+use Coretsia\Foundation\Serialization\StableJsonEncoder;
+use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianProtocol;
+use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianRuntime;
+use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianTransport;
+use Coretsia\Platform\Worker\Process\Proc\WorkerProcProcessHostClient;
+use Coretsia\Platform\Worker\Process\Proc\WorkerProcProcessHostProtocol;
+
+\error_reporting(\E_ALL);
+\ini_set('display_errors', '0');
+
+final class CoretsiaWorkerGuardianBootstrapFailure extends \RuntimeException
+{
+}
+
+/** @return array{driver: 'pcntl'|'proc', port: int<1,65535>, token: non-empty-string, start_timeout_ms: int<1,86400000>} */
+function coretsia_worker_guardian_parse_args(array $argv): array
+{
+    if (!\array_is_list($argv) || $argv === []) {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+    }
+
+    $values = [];
+    foreach (\array_slice($argv, 1) as $argument) {
+        if (!\is_string($argument) || \preg_match('/[\x00-\x1F\x7F]/', $argument) === 1) {
+            throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+        }
+        $separator = \strpos($argument, '=');
+        if ($separator === false || !\str_starts_with($argument, '--coretsia-worker-guardian-')) {
+            throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+        }
+        $key = \substr($argument, 2, $separator - 2);
+        $value = \substr($argument, $separator + 1);
+        if ($key === '' || $value === '' || isset($values[$key])) {
+            throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+        }
+        $values[$key] = $value;
+    }
+
+    if (\array_keys($values) !== [
+            'coretsia-worker-guardian-driver',
+            'coretsia-worker-guardian-port',
+            'coretsia-worker-guardian-token',
+            'coretsia-worker-guardian-start-timeout-ms',
+        ]) {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+    }
+
+    $driver = $values['coretsia-worker-guardian-driver'];
+    if (!\in_array($driver, ['pcntl', 'proc'], true)) {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+    }
+    if (!\ctype_digit($values['coretsia-worker-guardian-port'])
+        || !\ctype_digit($values['coretsia-worker-guardian-start-timeout-ms'])
+        || \preg_match('/\A[a-f0-9]{64}\z/', $values['coretsia-worker-guardian-token']) !== 1) {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+    }
+
+    $port = (int)$values['coretsia-worker-guardian-port'];
+    $startTimeoutMs = (int)$values['coretsia-worker-guardian-start-timeout-ms'];
+    if ($port < 1 || $port > 65_535 || $startTimeoutMs < 1 || $startTimeoutMs > 86_400_000) {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('argv-invalid');
+    }
+
+    return [
+        'driver' => $driver,
+        'port' => $port,
+        'token' => $values['coretsia-worker-guardian-token'],
+        'start_timeout_ms' => $startTimeoutMs,
+    ];
+}
+
+function coretsia_worker_guardian_require_autoload(string $root): void
+{
+    $autoload = $root . '/vendor/autoload.php';
+    if (!\is_file($autoload) || !\is_readable($autoload)) {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('autoload-invalid');
+    }
+    require $autoload;
+}
+
+$processHost = null;
+
+try {
+    $cwd = \getcwd();
+    if (!\is_string($cwd) || $cwd === '') {
+        throw new CoretsiaWorkerGuardianBootstrapFailure('cwd-invalid');
+    }
+
+    $args = coretsia_worker_guardian_parse_args($_SERVER['argv'] ?? []);
+    coretsia_worker_guardian_require_autoload($cwd);
+
+    $encoder = new StableJsonEncoder();
+    $decoder = new StableJsonDecoder();
+
+    /*
+     * PROC topology requirement: create the raw proc_open host before the
+     * guardian accepts its supervisor connection and before worker.lock exists.
+     */
+    if ($args['driver'] === 'proc') {
+        $processHost = new WorkerProcProcessHostClient(
+            command: [\PHP_BINARY, __DIR__ . '/coretsia-worker-proc-host'],
+            workingDirectory: $cwd,
+            protocol: new WorkerProcProcessHostProtocol($encoder, $decoder),
+        );
+        $processHost->start($args['start_timeout_ms']);
+    }
+
+    $protocol = new WorkerProcessGuardianProtocol($encoder, $decoder);
+    $transport = new WorkerProcessGuardianTransport();
+    $runtime = new WorkerProcessGuardianRuntime(
+        driverName: $args['driver'],
+        protocol: $protocol,
+        connection: $transport->accept($args['port'], $args['start_timeout_ms']),
+        processHost: $processHost,
+    );
+
+    exit($runtime->run($args['token']));
+} catch (\Throwable) {
+    if ($processHost instanceof WorkerProcProcessHostClient) {
+        try {
+            $processHost->shutdown(5_000);
+        } catch (\Throwable) {
+        }
+    }
+    exit(1);
+}

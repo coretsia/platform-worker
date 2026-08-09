@@ -21,16 +21,12 @@ namespace Coretsia\Platform\Worker\Console;
 use Coretsia\Contracts\Cli\Command\CommandInterface;
 use Coretsia\Contracts\Cli\Input\InputInterface;
 use Coretsia\Contracts\Cli\Output\OutputInterface;
-use Coretsia\Contracts\Config\ConfigRepositoryInterface;
-use Coretsia\Platform\Worker\Exception\WorkerCommunicationFailedException;
-use Coretsia\Platform\Worker\Exception\WorkerNotRunningException;
-use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
-use Coretsia\Platform\Worker\Manager\WorkerManager;
-use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
+use Coretsia\Platform\Worker\Exception\WorkerException;
+use Coretsia\Platform\Worker\Internal\WorkerControlClientInterface;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
 
 /**
- * Stops the configured worker pool.
+ * Stops the active worker pool.
  *
  * This command is package-local and contracts-only:
  *
@@ -40,12 +36,16 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
  * - it does not depend on platform/cli;
  * - it does not require full binary/catalog dispatch.
  *
- * Stop behavior is delegated to WorkerManager. This command must not write stop
- * flags, open control sockets, read/write worker state files, or expose raw
- * runtime paths/endpoints.
+ * Stop behavior is delegated to WorkerControlClientInterface. The client
+ * verifies liveness through the canonical lock, resolves the private locator,
+ * sends a stop request, and reports success only after the terminal `stopped`
+ * response is received.
  *
- * Lifecycle logging and observability summary emission remain delegated to
- * WorkerManager and its injected logger/observability ports.
+ * Lifecycle commands do not resolve WorkerPoolSpec and do not use current
+ * worker configuration to address an active supervisor.
+ *
+ * The command must not write stop flags, read diagnostic state snapshots, own
+ * control sockets, or expose raw runtime paths and endpoints.
  *
  * This class must not:
  *
@@ -61,31 +61,15 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
 final readonly class WorkerStopCommand implements CommandInterface
 {
     public const string NAME = 'worker:stop';
-    public const string SUMMARY = 'Stop the configured worker pool.';
+    public const string SUMMARY = 'Stop the active worker pool.';
     public const string GROUP = 'worker';
     public const bool HIDDEN = false;
     public const string MODE = 'none';
-
-    /**
-     * @var list<array<string, mixed>>
-     */
     public const array ARGUMENTS = [];
-
-    /**
-     * @var list<array<string, mixed>>
-     */
     public const array OPTIONS = [];
 
-    private const int EXIT_SUCCESS = 0;
-    private const int EXIT_FAILURE = 1;
-
-    private const string ERROR_CODE_WORKER_COMMAND_INVALID = 'CORETSIA_WORKER_COMMAND_INVALID';
-    private const string ERROR_CODE_WORKER_STOP_FAILED = 'CORETSIA_WORKER_STOP_FAILED';
-
     public function __construct(
-        private ConfigRepositoryInterface $config,
-        private WorkerServiceFactory $factory,
-        private WorkerManager $manager,
+        private WorkerControlClientInterface $client,
     ) {
     }
 
@@ -94,98 +78,52 @@ final readonly class WorkerStopCommand implements CommandInterface
         return self::NAME;
     }
 
-    public function run(InputInterface $input, OutputInterface $output): int
-    {
-        if (!$this->assertParsedInput($input, $output)) {
-            return self::EXIT_FAILURE;
+    public function run(
+        InputInterface $input,
+        OutputInterface $output,
+    ): int {
+        if (!$this->validInput($input, $output)) {
+            return 1;
         }
-
         try {
-            $spec = $this->factory->workerPoolSpec($this->config);
-            $state = $this->manager->stop($spec);
-
-            $output->json(self::stopSummary($state));
-
-            return self::EXIT_SUCCESS;
-        } catch (WorkerNotRunningException $exception) {
-            $output->error(
-                $exception->errorCode(),
-                $exception->reason(),
-            );
-
-            return self::EXIT_FAILURE;
-        } catch (WorkerCommunicationFailedException $exception) {
-            $output->error(
-                $exception->errorCode(),
-                $exception->reason(),
-            );
-
-            return self::EXIT_FAILURE;
-        } catch (WorkerStartFailedException) {
-            $output->error(
-                self::ERROR_CODE_WORKER_STOP_FAILED,
-                'worker-stop-failed',
-            );
-
-            return self::EXIT_FAILURE;
+            $state = $this->client->stop();
+            $output->json(self::summary($state));
+            return 0;
+        } catch (WorkerException $exception) {
+            $output->error($exception->errorCode(), $exception->reason());
         } catch (\Throwable) {
-            $output->error(
-                self::ERROR_CODE_WORKER_STOP_FAILED,
-                'worker-stop-failed',
-            );
-
-            return self::EXIT_FAILURE;
+            $output->error('CORETSIA_WORKER_STOP_FAILED', 'worker-stop-failed');
         }
+        return 1;
     }
 
-    private function assertParsedInput(InputInterface $input, OutputInterface $output): bool
-    {
+    private function validInput(
+        InputInterface $input,
+        OutputInterface $output,
+    ): bool {
         if ($input->commandName() !== self::NAME) {
-            $output->error(
-                self::ERROR_CODE_WORKER_COMMAND_INVALID,
-                'worker-command-name-invalid',
-            );
-
+            $output->error('CORETSIA_WORKER_COMMAND_INVALID', 'worker-command-name-invalid');
             return false;
         }
-
         if ($input->arguments() !== []) {
-            $output->error(
-                self::ERROR_CODE_WORKER_COMMAND_INVALID,
-                'worker-stop-arguments-not-supported',
-            );
-
+            $output->error('CORETSIA_WORKER_COMMAND_INVALID', 'worker-stop-arguments-not-supported');
             return false;
         }
-
         if ($input->options() !== []) {
-            $output->error(
-                self::ERROR_CODE_WORKER_COMMAND_INVALID,
-                'worker-stop-options-not-supported',
-            );
-
+            $output->error('CORETSIA_WORKER_COMMAND_INVALID', 'worker-stop-options-not-supported');
             return false;
         }
-
         return true;
     }
 
-    /**
-     * @return array{
-     *     status: 'stopped',
-     *     pid: int,
-     *     worker_count: int,
-     *     driver: string,
-     *     control_transport: string,
-     *     endpoint_hash: string
-     * }
-     */
-    private static function stopSummary(WorkerPoolState $state): array
+    /** @return array<string, int|string> */
+    private static function summary(WorkerPoolState $state): array
     {
         return [
             'status' => 'stopped',
             'pid' => $state->pid(),
             'worker_count' => $state->workerCount(),
+            'ready_worker_count' => 0,
             'driver' => $state->driver(),
             'control_transport' => $state->controlTransport(),
             'endpoint_hash' => $state->endpointHash(),

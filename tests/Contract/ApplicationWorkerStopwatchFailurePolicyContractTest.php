@@ -52,27 +52,27 @@ final class ApplicationWorkerStopwatchFailurePolicyContractTest extends TestCase
         );
     }
 
-    public function testRunOneDoesNotAccessStopwatchDirectly(): void
+    public function testRunTaskDoesNotAccessStopwatchDirectly(): void
     {
         $source = self::stripPhpComments(
             self::sourceFile('src/Worker/ApplicationWorker.php'),
         );
 
-        $runOne = self::methodBody($source, 'runOne');
+        $runTask = self::methodBody($source, 'runTask');
 
-        self::assertStringContainsString('$startedAt = $this->safeStartTimer();', $runOne);
-        self::assertStringContainsString('$durationMs = $this->safeDurationMs($startedAt);', $runOne);
+        self::assertStringContainsString('$startedAt = $this->safeStartTimer();', $runTask);
+        self::assertStringContainsString('$durationMs = $this->safeDurationMs($startedAt);', $runTask);
 
         self::assertStringNotContainsString(
             '->stopwatch->start(',
-            $runOne,
-            'runOne() must not call Stopwatch::start() directly.',
+            $runTask,
+            'runTask() must not call Stopwatch::start() directly.',
         );
 
         self::assertStringNotContainsString(
             '->stopwatch->stop(',
-            $runOne,
-            'runOne() must not call Stopwatch::stop() directly.',
+            $runTask,
+            'runTask() must not call Stopwatch::stop() directly.',
         );
     }
 

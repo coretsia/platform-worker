@@ -21,7 +21,7 @@ namespace Coretsia\Platform\Worker\Exception;
 /**
  * Deterministic worker fork failure.
  *
- * This exception is used by the pcntl worker manager driver when process fork
+ * This exception is used by the pcntl worker process driver when process fork
  * cannot be completed.
  *
  * The public message contains only:

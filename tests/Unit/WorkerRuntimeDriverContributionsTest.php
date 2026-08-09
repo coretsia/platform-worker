@@ -18,59 +18,45 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Unit;
 
-use Coretsia\Kernel\Runtime\Driver\BackgroundDriver;
-use Coretsia\Kernel\Runtime\Driver\HttpDriver;
 use Coretsia\Platform\Worker\Internal\WorkerRuntimeDriverContributions;
-use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
+use Coretsia\Platform\Worker\Tests\Support\WorkerSpecFactory;
 use PHPUnit\Framework\TestCase;
 
 final class WorkerRuntimeDriverContributionsTest extends TestCase
 {
-    public function testMapsQueueTaskTypeToWorkerQueueBackgroundDriver(): void
+    public function testQueueContributesOnlyBackgroundWorkerDriver(): void
     {
-        $spec = self::workerPoolSpec('queue');
-
-        $contributions = WorkerRuntimeDriverContributions::fromSpec($spec);
+        $contributions = WorkerRuntimeDriverContributions::fromSpec(
+            WorkerSpecFactory::create([
+                'task_type' => 'queue',
+            ]),
+        );
 
         self::assertSame([], $contributions->httpDrivers());
-        self::assertSame([BackgroundDriver::WORKER_QUEUE], $contributions->backgroundDrivers());
-        self::assertSame(['bg.worker_queue'], $contributions->driverIds());
-    }
-
-    public function testMapsHttpTaskTypeToWorkerHttpDriver(): void
-    {
-        $spec = self::workerPoolSpec('http');
-
-        $contributions = WorkerRuntimeDriverContributions::fromSpec($spec);
-
-        self::assertSame([HttpDriver::WORKER], $contributions->httpDrivers());
-        self::assertSame([], $contributions->backgroundDrivers());
-        self::assertSame(['http.worker'], $contributions->driverIds());
-    }
-
-    private static function workerPoolSpec(string $taskType): WorkerPoolSpec
-    {
-        return WorkerPoolSpec::fromConfig(
-            config: [
-                'workers' => 1,
-                'max_requests' => 100,
-                'task_type' => $taskType,
-                'socket_path' => 'var/run/coretsia-worker.sock',
-                'driver' => 'proc',
-                'control' => [
-                    'transport' => 'tcp',
-                ],
-                'tcp' => [
-                    'host' => '127.0.0.1',
-                    'port' => 9501,
-                ],
-                'state_path' => 'var/run/coretsia-worker.state',
-                'stop_flag_path' => 'var/run/coretsia-worker.stop',
-                'stop_timeout_ms' => 1000,
-            ],
-            pcntlForkAvailable: false,
-            platformFamily: 'Linux',
-            unixDomainSocketsSupported: false,
+        self::assertSame(
+            ['bg.worker_queue'],
+            \array_map(
+                static fn ($driver): string => $driver->value,
+                $contributions->backgroundDrivers(),
+            ),
         );
+    }
+
+    public function testHttpContributesOnlyWorkerHttpDriver(): void
+    {
+        $contributions = WorkerRuntimeDriverContributions::fromSpec(
+            WorkerSpecFactory::create([
+                'task_type' => 'http',
+            ]),
+        );
+
+        self::assertSame(
+            ['http.worker'],
+            \array_map(
+                static fn ($driver): string => $driver->value,
+                $contributions->httpDrivers(),
+            ),
+        );
+        self::assertSame([], $contributions->backgroundDrivers());
     }
 }

@@ -18,10 +18,10 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Internal;
 
+use Coretsia\Contracts\Worker\WorkerTaskType;
 use Coretsia\Kernel\Runtime\Driver\BackgroundDriver;
 use Coretsia\Kernel\Runtime\Driver\HttpDriver;
 use Coretsia\Kernel\Runtime\Driver\RuntimeDriverContributions;
-use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 
 /**
@@ -34,28 +34,23 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
  */
 final class WorkerRuntimeDriverContributions
 {
-    private const string TASK_TYPE_HTTP = 'http';
-    private const string TASK_TYPE_QUEUE = 'queue';
-
-    public static function fromSpec(WorkerPoolSpec $spec): RuntimeDriverContributions
-    {
-        return self::fromTaskType($spec->taskType());
-    }
-
-    private static function fromTaskType(string $taskType): RuntimeDriverContributions
-    {
-        return match ($taskType) {
-            self::TASK_TYPE_QUEUE => RuntimeDriverContributions::fromDrivers(
+    public static function fromSpec(
+        WorkerPoolSpec $spec,
+    ): RuntimeDriverContributions {
+        return match (WorkerTaskType::from($spec->taskType())) {
+            WorkerTaskType::Queue => RuntimeDriverContributions::fromDrivers(
                 httpDrivers: [],
-                backgroundDrivers: [BackgroundDriver::WORKER_QUEUE],
+                backgroundDrivers: [
+                    BackgroundDriver::WORKER_QUEUE,
+                ],
             ),
 
-            self::TASK_TYPE_HTTP => RuntimeDriverContributions::fromDrivers(
-                httpDrivers: [HttpDriver::WORKER],
+            WorkerTaskType::Http => RuntimeDriverContributions::fromDrivers(
+                httpDrivers: [
+                    HttpDriver::WORKER,
+                ],
                 backgroundDrivers: [],
             ),
-
-            default => throw WorkerStartFailedException::invalidState(),
         };
     }
 }

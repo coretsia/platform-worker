@@ -31,8 +31,14 @@ declare(strict_types=1);
  * - the `worker` root is owned by `platform/worker`;
  * - module participation is owned by mode presets and ModulePlan;
  * - starting a worker pool is an explicit command action;
- * - queue task mode is the safe default task type;
- * - process/control paths are skeleton-root-relative runtime paths;
+ * - `worker.task_type` explicitly selects the worker task-source and runtime-driver mode;
+ * - `queue` is the default selection, but starting the pool still requires exactly
+ *   one matching registered task source;
+ * - configurable process/control paths are skeleton-root-relative runtime paths;
+ * - the lifecycle lock and private lifecycle locator are package-owned canonical
+ *   artifacts and are not part of mutable worker configuration;
+ * - the worker-generation guardian is mandatory package infrastructure and
+ *   cannot be enabled, disabled, or redirected by application configuration;
  * - path defaults MUST remain relative and MUST NOT contain a `skeleton/`
  *   prefix, absolute path syntax, host-specific path fragments, or monorepo-only
  *   paths;
@@ -69,8 +75,10 @@ return [
      * - `queue`
      * - `http`
      *
-     * Queue mode is the safe default because it does not require an HTTP
-     * handling stack.
+     * Queue is the default task-source selection. Starting the worker pool
+     * requires exactly one registered `worker.task_source` contribution for
+     * the selected task type. The platform/worker package does not provide
+     * synthetic or no-op task sources.
      */
     'task_type' => 'queue',
 
@@ -93,22 +101,25 @@ return [
      *
      * `auto` resolves deterministically later:
      *
-     * - `pcntl` when `pcntl_fork` is available and the platform is not Windows;
-     * - otherwise `proc`.
+     * - `pcntl` when the guardian PCNTL backend and required POSIX capabilities
+     *   are available and the platform is not Windows;
+     * - otherwise `proc` when the guardian and isolated proc process-host
+     *   backend are available;
+     * - otherwise worker start validation fails deterministically.
      */
     'driver' => 'auto',
 
     /*
      * Proc child-process command vector.
      *
-     * This base argv vector is used by ProcWorkerManagerDriver to start child
-     * worker processes through proc_open().
+     * This base argv vector is adapted by ProcWorkerProcessDriver and executed
+     * by the guardian-owned isolated proc process host through proc_open().
      *
      * This is an argv list, not a shell string.
      *
      * The package default points to the worker-owned child launcher shipped by this
      * package. The special `@php` token is expanded by WorkerServiceFactory to the
-     * current PHP binary before ProcWorkerManagerDriver receives the command.
+     * current PHP binary before ProcWorkerProcessDriver receives the command.
      *
      * The default path is skeleton-root-relative and targets the normal Composer
      * installation layout.
@@ -137,8 +148,7 @@ return [
          *
          * `auto` resolves deterministically later:
          *
-         * - `unix` when the resolved driver is `pcntl` and unix domain sockets
-         *   are supported;
+         * - `unix` when unix domain sockets are supported;
          * - otherwise `tcp`.
          */
         'transport' => 'auto',
@@ -175,10 +185,19 @@ return [
     'stop_flag_path' => 'var/tmp/worker.stop',
 
     /*
+     * Maximum time for all worker slots to publish readiness.
+     */
+    'start_timeout_ms' => 10000,
+
+    /*
      * Graceful stop timeout in milliseconds.
      *
-     * The value is validated by config rules as an integer greater than or equal
-     * to zero.
+     * The value is validated by config rules as an integer greater than zero.
      */
-    'stop_timeout_ms' => 3000,
+    'stop_timeout_ms' => 10000,
+
+    /*
+     * Additional deadline after graceful termination before hard kill.
+     */
+    'force_kill_timeout_ms' => 1000,
 ];

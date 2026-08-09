@@ -23,22 +23,18 @@
       "homepage": "https://coretsia.dev/"
     }
   ],
-  "bin": [
-    "bin/coretsia-worker"
-  ],
   "require": {
     "php": "^8.4",
-    "coretsia/core-contracts": "^0.5.0",
-    "coretsia/core-foundation": "^0.5.0",
-    "coretsia/core-kernel": "^0.5.0",
+    "ext-ctype": "*",
+    "coretsia/core-contracts": "^0.6.0",
+    "coretsia/core-foundation": "^0.6.0",
+    "coretsia/core-kernel": "^0.6.0",
     "psr/container": "^2.0",
-    "psr/http-message": "^2.0",
-    "psr/http-server-handler": "^1.0",
     "psr/log": "^3.0"
   },
   "suggest": {
-    "ext-pcntl": "Enables the optional pcntl worker manager driver on supported Unix-like platforms.",
-    "ext-posix": "Enables POSIX signal handling for the optional pcntl worker manager driver on supported Unix-like platforms."
+    "ext-pcntl": "Required for graceful SIGTERM/SIGINT handling by Unix-like worker supervisors and enables the optional pcntl process driver.",
+    "ext-posix": "Enables POSIX signal handling for the optional pcntl worker process driver on supported Unix-like platforms."
   },
   "autoload": {
     "psr-4": {
