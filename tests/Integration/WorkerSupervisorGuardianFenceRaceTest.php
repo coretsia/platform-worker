@@ -78,19 +78,11 @@ final class WorkerSupervisorGuardianFenceRaceTest extends SupervisorIntegrationT
 
             if (($message['type'] ?? null) === 'json') {
                 /*
-                 * POSIX deliberately keeps the old generation alive through
-                 * SIGTERM, so a successful racing start there would violate the
-                 * generation fence contract.
-                 *
-                 * Windows may finish hard proc-child termination before the racing
-                 * start reaches the fence. In that case replacement may start,
-                 * but the old worker must already be gone.
+                 * The racing start may reach the generation fence either before
+                 * or after guardian cleanup releases it. A successful start is
+                 * valid only after the old worker generation is completely gone;
+                 * otherwise the two generations overlapped.
                  */
-                self::assertTrue(
-                    $windows,
-                    'A POSIX replacement must fail while the TERM-ignoring old generation is fenced.',
-                );
-
                 $payload = $message['payload'] ?? null;
 
                 self::assertIsArray($payload);

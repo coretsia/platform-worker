@@ -18,7 +18,14 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Process\Guardian;
 
-/** @internal */
+/**
+ * Package-internal Guardian protocol/runtime failure.
+ *
+ * The safe reason belongs to the private Guardian wire protocol. This failure
+ * is not part of the package-level WorkerException taxonomy.
+ *
+ * @internal
+ */
 final class WorkerProcessGuardianFailure extends \RuntimeException
 {
     public function __construct(private readonly string $safeReason)

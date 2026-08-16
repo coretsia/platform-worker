@@ -34,7 +34,8 @@
   },
   "suggest": {
     "ext-pcntl": "Required for graceful SIGTERM/SIGINT handling by Unix-like worker supervisors and enables the optional pcntl process driver.",
-    "ext-posix": "Enables POSIX signal handling for the optional pcntl worker process driver on supported Unix-like platforms."
+    "ext-posix": "Enables POSIX signal handling for the optional pcntl worker process driver on supported Unix-like platforms.",
+    "ext-sockets": "Required on Windows for exclusive ownership of Worker retained loopback listeners through SO_EXCLUSIVEADDRUSE."
   },
   "autoload": {
     "psr-4": {

@@ -1186,16 +1186,48 @@ final class WorkerCommandHarness
         $metadata = @\stream_get_meta_data($pipe);
 
         /*
-         * A regular file reader can retain EOF after reaching the current end.
-         * Re-seeking to the current position clears that state so subsequently
-         * appended child output becomes visible on Windows.
+         * A long-lived regular-file reader can retain an EOF view while another
+         * process appends and flushes output on Windows. Read a fresh filesystem
+         * snapshot from the reader's current byte position so already-published
+         * command output cannot remain hidden behind that cached EOF state.
          *
-         * Anonymous Unix pipes are not seekable and remain unaffected.
+         * The persistent stream still owns the read cursor. If a fresh-path read
+         * is unavailable, fall back to the existing stream read after clearing
+         * EOF by re-seeking to the current position. Anonymous Unix pipes are not
+         * seekable and therefore continue directly to stream_get_contents().
          */
         if (
             \is_array($metadata)
             && ($metadata['seekable'] ?? false) === true
         ) {
+            $position = @\ftell($pipe);
+            $uri = $metadata['uri'] ?? null;
+
+            if (
+                \is_int($position)
+                && $position >= 0
+                && \is_string($uri)
+                && $uri !== ''
+            ) {
+                $freshBytes = @\file_get_contents(
+                    $uri,
+                    false,
+                    null,
+                    $position,
+                );
+
+                if (
+                    \is_string($freshBytes)
+                    && @\fseek(
+                        $pipe,
+                        $position + \strlen($freshBytes),
+                        \SEEK_SET,
+                    ) === 0
+                ) {
+                    return $freshBytes;
+                }
+            }
+
             @\fseek(
                 $pipe,
                 0,

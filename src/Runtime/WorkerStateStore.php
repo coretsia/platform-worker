@@ -56,8 +56,6 @@ final readonly class WorkerStateStore
 {
     public function __construct(
         private string $skeletonRoot,
-        private StableJsonEncoder $encoder,
-        private StableJsonDecoder $decoder,
     ) {
         if ($skeletonRoot === '' || \str_contains($skeletonRoot, "\0")) {
             throw new \InvalidArgumentException('worker-state-root-invalid');
@@ -112,7 +110,7 @@ final readonly class WorkerStateStore
     public function write(WorkerPoolSpec $spec, WorkerPoolState $state): void
     {
         try {
-            $bytes = $this->encoder->encodeMap($state->toArray());
+            $bytes = StableJsonEncoder::encodeStableMap($state->toArray());
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::invalidState();
         }
@@ -165,7 +163,7 @@ final readonly class WorkerStateStore
 
         try {
             return WorkerPoolState::fromArray(
-                $this->decoder->decodeMap($bytes),
+                StableJsonDecoder::decodeStableMap($bytes),
             );
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::invalidState();

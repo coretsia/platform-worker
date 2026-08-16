@@ -18,8 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Unit;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolStatus;
 use Coretsia\Platform\Worker\Runtime\WorkerStateStore;
 use Coretsia\Platform\Worker\Tests\Support\PackageTestCase;
@@ -30,11 +28,7 @@ final class WorkerStateStoreStateFactoryTest extends PackageTestCase
     public function testCreatesRedactedSchemaVersionOneState(): void
     {
         $root = $this->temporaryDirectory('worker-state-factory');
-        $store = new WorkerStateStore(
-            $root,
-            new StableJsonEncoder(),
-            new StableJsonDecoder(),
-        );
+        $store = new WorkerStateStore($root);
         $spec = WorkerSpecFactory::create();
 
         $state = $store->createState(
@@ -57,11 +51,7 @@ final class WorkerStateStoreStateFactoryTest extends PackageTestCase
     public function testMissingSnapshotReturnsNullAndDoesNotAssertLiveness(): void
     {
         $root = $this->temporaryDirectory('worker-state-missing');
-        $store = new WorkerStateStore(
-            $root,
-            new StableJsonEncoder(),
-            new StableJsonDecoder(),
-        );
+        $store = new WorkerStateStore($root);
 
         self::assertNull(
             $store->readSnapshot(WorkerSpecFactory::create()),

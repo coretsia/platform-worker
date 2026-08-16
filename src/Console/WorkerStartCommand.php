@@ -49,8 +49,13 @@ use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
  * WorkerTaskSourceInterface, or lifecycle resources before the command run
  * path has enforced the required ordering.
  *
- * Guard failures are surfaced using the original runtime driver matrix error
- * code and reason token, not translated into worker-specific conflict codes.
+ * Kernel runtime-driver matrix failures preserve their Kernel-owned error code
+ * and reason token.
+ *
+ * Worker-owned entrypoint precondition failures preserve their Worker-owned
+ * error code and reason token.
+ *
+ * The command does not translate either failure domain into the other.
  *
  * This class must not:
  *

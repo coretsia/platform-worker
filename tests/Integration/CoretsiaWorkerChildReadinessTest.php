@@ -67,4 +67,30 @@ final class CoretsiaWorkerChildReadinessTest extends PackageTestCase
         self::assertSame('', $finished['stderr']);
         self::assertSame('ready:' . $token . "\n", $frame);
     }
+
+    public function testReadinessListenerRetainsExclusivePortOwnership(): void
+    {
+        $channel = new WorkerChildReadinessChannel();
+        $endpoint = $channel->createProcessEndpoint();
+        $second = null;
+
+        try {
+            $second = @\stream_socket_server(
+                'tcp://127.0.0.1:' . $endpoint->port(),
+                $errorCode,
+                $errorMessage,
+            );
+
+            self::assertFalse(
+                \is_resource($second),
+                'The worker-readiness listener must retain exclusive ownership of its port.',
+            );
+        } finally {
+            if (\is_resource($second)) {
+                @\fclose($second);
+            }
+
+            $endpoint->close();
+        }
+    }
 }

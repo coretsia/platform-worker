@@ -18,8 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Communication\WorkerControlCredential;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLocator;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLocatorStore;
@@ -227,12 +225,8 @@ final class WorkerLifecycleConfigDriftTest extends SupervisorIntegrationTestCase
     public function testStaleLocatorWithFreeLockIsIgnoredAndReplacedOnStart(): void
     {
         ['root' => $root, 'harness' => $harness] = $this->newHarness();
-        $encoder = new StableJsonEncoder();
-        $decoder = new StableJsonDecoder();
         $store = new WorkerLifecycleLocatorStore(
             skeletonRoot: $root,
-            encoder: $encoder,
-            decoder: $decoder,
         );
         $activeConfig = $harness->workerConfig();
         $activeTcp = $activeConfig['tcp'] ?? null;

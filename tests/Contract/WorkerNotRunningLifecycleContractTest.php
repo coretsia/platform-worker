@@ -18,8 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Contract;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Platform\Worker\Communication\WorkerControlClient;
 use Coretsia\Platform\Worker\Communication\WorkerControlCredential;
@@ -45,13 +43,7 @@ final class WorkerNotRunningLifecycleContractTest extends PackageTestCase
         @\mkdir(\dirname($statePath), 0777, true);
         \file_put_contents($statePath, "{\"stale\":true}\n");
 
-        $encoder = new StableJsonEncoder();
-        $decoder = new StableJsonDecoder();
-        $locatorStore = new WorkerLifecycleLocatorStore(
-            skeletonRoot: $root,
-            encoder: $encoder,
-            decoder: $decoder,
-        );
+        $locatorStore = new WorkerLifecycleLocatorStore($root);
         $locatorStore->write(
             WorkerLifecycleLocator::fromPoolSpec(
                 WorkerSpecFactory::create(),
@@ -63,7 +55,7 @@ final class WorkerNotRunningLifecycleContractTest extends PackageTestCase
 
         $client = new WorkerControlClient(
             transport: new WorkerControlTransport($root),
-            protocol: new WorkerControlProtocol($encoder, $decoder),
+            protocol: new WorkerControlProtocol(),
             lifecycleLock: new WorkerLifecycleLock($root),
             locatorStore: $locatorStore,
             tracer: new RecordingTracer(),

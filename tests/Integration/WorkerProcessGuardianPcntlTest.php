@@ -18,12 +18,11 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Internal\WorkerProcessCapabilities;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianClient;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianProtocol;
-use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianTransport;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLock;
 use Coretsia\Platform\Worker\Tests\Support\PackageTestCase;
 use Coretsia\Platform\Worker\Tests\Support\WorkerSpecFactory;
@@ -73,8 +72,10 @@ final class WorkerProcessGuardianPcntlTest extends PackageTestCase
             command: [\PHP_BINARY, self::packageRoot() . '/bin/coretsia-worker-guardian'],
             bootstrapWorkingDirectory: self::frameworkRoot(),
             skeletonRoot: $root,
-            protocol: new WorkerProcessGuardianProtocol(new StableJsonEncoder(), new StableJsonDecoder()),
-            transport: new WorkerProcessGuardianTransport(),
+            protocol: new WorkerProcessGuardianProtocol(),
+            bootstrapLauncher: new WorkerProcessBootstrapLauncher(
+                new WorkerProcessBootstrapProtocol(),
+            ),
         );
     }
 }

@@ -23,15 +23,16 @@ use Coretsia\Platform\Worker\Exception\WorkerForkFailedException;
 use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Internal\WorkerProcessGuardianInterface;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\WorkerProcessExit;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 
 /**
  * Foreground-supervisor client for one package-owned process guardian.
  *
- * PCNTL guardians are launched through pre-lifecycle fork/exec. PROC guardians
- * are launched through proc_open so the proc backend remains usable without
- * pcntl. In both cases launch occurs before the guardian claims worker.lock.
+ * Guardian launch always uses the shared proc_open process-bootstrap launcher.
+ * The selected driver controls only the worker-child backend owned by Guardian.
  */
 final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterface
 {
@@ -57,7 +58,7 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
         private readonly string $bootstrapWorkingDirectory,
         private readonly string $skeletonRoot,
         private readonly WorkerProcessGuardianProtocol $protocol,
-        private readonly WorkerProcessGuardianTransport $transport,
+        private readonly WorkerProcessBootstrapLauncher $bootstrapLauncher,
     ) {
         if (
             $command === []
@@ -77,39 +78,37 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
 
     public function claim(WorkerPoolSpec $spec, string $driverName): void
     {
-        if ($this->claimed || $this->released || !\in_array($driverName, ['pcntl', 'proc'], true)) {
+        if (
+            $this->claimed
+            || $this->released
+            || \is_resource($this->process)
+            || \is_resource($this->connection)
+            || $this->guardianPid !== null
+            || !\in_array($driverName, ['pcntl', 'proc'], true)
+        ) {
             throw WorkerLifecycleFailedException::processGuardianFailed();
         }
 
         self::assertTimeout($spec->startTimeoutMs());
-        $port = WorkerProcessGuardianTransport::reserveLoopbackPort();
+        $deadlineNs = self::deadlineNs($spec->startTimeoutMs());
+
         try {
-            $token = \bin2hex(\random_bytes(32));
+            $session = $this->bootstrapLauncher->launchAuthenticatedChild(
+                command: $this->command,
+                workingDirectory: $this->bootstrapWorkingDirectory,
+                role: WorkerProcessBootstrapProtocol::ROLE_GUARDIAN,
+                timeoutMs: self::remainingMs($deadlineNs),
+                driver: $driverName,
+            );
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::processGuardianFailed();
         }
 
-        $command = [
-            ...$this->command,
-            '--coretsia-worker-guardian-driver=' . $driverName,
-            '--coretsia-worker-guardian-port=' . $port,
-            '--coretsia-worker-guardian-token=' . $token,
-            '--coretsia-worker-guardian-start-timeout-ms=' . $spec->startTimeoutMs(),
-        ];
+        $this->process = $session['process'];
+        $this->guardianPid = $session['pid'];
+        $this->connection = $session['connection'];
 
         try {
-            $this->launch($command, $driverName);
-            $this->connection = $this->transport->connect($port, $spec->startTimeoutMs());
-
-            $hello = $this->request(
-                WorkerProcessGuardianProtocol::OPERATION_HELLO,
-                ['token' => $token],
-                $spec->startTimeoutMs(),
-            );
-            if (\array_keys($hello) !== ['ready'] || $hello['ready'] !== true) {
-                throw WorkerLifecycleFailedException::processGuardianFailed();
-            }
-
             $claimed = $this->request(
                 WorkerProcessGuardianProtocol::OPERATION_CLAIM,
                 [
@@ -117,30 +116,45 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
                     'skeleton_root' => $this->skeletonRoot,
                     'stop_timeout_ms' => $spec->stopTimeoutMs(),
                 ],
-                $spec->startTimeoutMs(),
+                self::remainingMs($deadlineNs),
             );
+
             if (\array_keys($claimed) !== ['acknowledged'] || $claimed['acknowledged'] !== true) {
                 throw WorkerLifecycleFailedException::processGuardianFailed();
             }
 
             $this->claimed = true;
         } catch (WorkerAlreadyRunningException $exception) {
+            /* Explicit rejection proves this candidate Guardian did not acquire the fence. */
             $this->closeConnection();
             $this->waitForGuardianExit(\min($spec->startTimeoutMs(), 5_000));
-            $this->closeProcessResource();
+            if ($this->guardianRunning()) {
+                $this->forceTerminateGuardian();
+            } else {
+                $this->closeProcessResource();
+            }
             $this->resetLaunch();
             throw $exception;
         } catch (\Throwable $exception) {
+            /*
+             * Once CLAIM may have reached Guardian, a missing ACK is an ambiguous
+             * commit result. EOF transfers cleanup to Guardian; do not force-kill
+             * a process that may already own WorkerLifecycleLock.
+             */
             $this->closeConnection();
             $this->waitForGuardianExit(\min($spec->startTimeoutMs(), 5_000));
-            $this->forceTerminateGuardian();
-            $this->resetLaunch();
+
+            if (!$this->guardianRunning()) {
+                $this->closeProcessResource();
+                $this->resetLaunch();
+            }
 
             if ($exception instanceof WorkerStartFailedException
                 || $exception instanceof WorkerForkFailedException
                 || $exception instanceof WorkerLifecycleFailedException) {
                 throw $exception;
             }
+
             throw WorkerLifecycleFailedException::processGuardianFailed();
         }
     }
@@ -311,53 +325,6 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
         return $response['payload'];
     }
 
-    /** @param non-empty-list<non-empty-string> $command */
-    private function launch(array $command, string $driverName): void
-    {
-        if ($driverName === 'pcntl') {
-            $pid = @\pcntl_fork();
-            if ($pid === -1) {
-                throw WorkerForkFailedException::forkFailed();
-            }
-            if ($pid === 0) {
-                self::resetLauncherChildSignals();
-                if (!@\chdir($this->bootstrapWorkingDirectory)) {
-                    exit(1);
-                }
-                $binary = \array_shift($command);
-                if (!\is_string($binary) || $binary === '') {
-                    exit(1);
-                }
-                @\pcntl_exec($binary, $command);
-                exit(1);
-            }
-            $this->guardianPid = $pid;
-            return;
-        }
-
-        $null = \PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
-        $descriptors = [
-            0 => ['file', $null, 'r'],
-            1 => ['file', $null, 'w'],
-            2 => ['file', $null, 'w'],
-        ];
-        $options = ['bypass_shell' => true];
-        if (\PHP_OS_FAMILY === 'Windows') {
-            $options['create_process_group'] = true;
-        }
-        $pipes = [];
-        $process = @\proc_open($command, $descriptors, $pipes, $this->bootstrapWorkingDirectory, null, $options);
-        if (!\is_resource($process)) {
-            throw WorkerLifecycleFailedException::processGuardianFailed();
-        }
-        $this->process = $process;
-        $status = @\proc_get_status($process);
-
-        if ($status['pid'] > 0) {
-            $this->guardianPid = $status['pid'];
-        }
-    }
-
     private function writeFrame(string $frame, int $deadlineNs): void
     {
         $connection = $this->connection;
@@ -442,60 +409,38 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
         return $this->nextRequestId++;
     }
 
+    private function guardianRunning(): bool
+    {
+        if (!\is_resource($this->process)) {
+            return false;
+        }
+
+        $status = @\proc_get_status($this->process);
+
+        return $status['running'] === true;
+    }
+
     private function waitForGuardianExit(int $timeoutMs): void
     {
         self::assertTimeout($timeoutMs);
         $deadlineNs = self::deadlineNs($timeoutMs);
 
-        if (\is_resource($this->process)) {
-            do {
-                $status = @\proc_get_status($this->process);
-
-                if ($status['running'] !== true) {
-                    return;
-                }
-
-                \usleep(self::WAIT_TICK_US);
-            } while (\hrtime(true) < $deadlineNs);
-
-            return;
-        }
-
-        if ($this->guardianPid !== null && \function_exists('pcntl_waitpid')) {
-            do {
-                $status = 0;
-                $result = @\pcntl_waitpid($this->guardianPid, $status, \WNOHANG);
-                if ($result === $this->guardianPid || $result === -1) {
-                    $this->guardianPid = null;
-                    return;
-                }
-                \usleep(self::WAIT_TICK_US);
-            } while (\hrtime(true) < $deadlineNs);
+        while ($this->guardianRunning() && \hrtime(true) < $deadlineNs) {
+            \usleep(self::WAIT_TICK_US);
         }
     }
 
     private function forceTerminateGuardian(): void
     {
         if (\is_resource($this->process)) {
-            $status = @\proc_get_status($this->process);
-
-            if ($status['running'] === true) {
+            if ($this->guardianRunning()) {
                 @\proc_terminate($this->process, 9);
             }
-
             @\proc_close($this->process);
-            $this->process = null;
+        }
 
-            return;
-        }
-        if ($this->guardianPid !== null && \function_exists('posix_kill')) {
-            @\posix_kill($this->guardianPid, \SIGKILL);
-            if (\function_exists('pcntl_waitpid')) {
-                $status = 0;
-                @\pcntl_waitpid($this->guardianPid, $status);
-            }
-            $this->guardianPid = null;
-        }
+        $this->process = null;
+        $this->guardianPid = null;
     }
 
     private function closeConnection(): void
@@ -524,20 +469,6 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
         $this->nextRequestId = 1;
     }
 
-    private static function resetLauncherChildSignals(): void
-    {
-        if (\function_exists('pcntl_signal') && \defined('SIG_DFL')) {
-            @\pcntl_signal(\SIGTERM, \SIG_DFL, true);
-            @\pcntl_signal(\SIGINT, \SIG_DFL, true);
-            if (\defined('SIGCHLD')) {
-                @\pcntl_signal(\SIGCHLD, \SIG_DFL, true);
-            }
-        }
-        if (\function_exists('pcntl_async_signals')) {
-            @\pcntl_async_signals(false);
-        }
-    }
-
     private static function assertTimeout(int $timeoutMs): void
     {
         if ($timeoutMs < 1 || $timeoutMs > self::MAX_TIMEOUT_MS) {
@@ -549,6 +480,16 @@ final class WorkerProcessGuardianClient implements WorkerProcessGuardianInterfac
     {
         self::assertTimeout($timeoutMs);
         return \hrtime(true) + ($timeoutMs * 1_000_000);
+    }
+
+    private static function remainingMs(int $deadlineNs): int
+    {
+        $remainingNs = $deadlineNs - \hrtime(true);
+        if ($remainingNs <= 0) {
+            throw WorkerLifecycleFailedException::processGuardianFailed();
+        }
+
+        return \max(1, (int)\ceil($remainingNs / 1_000_000));
     }
 
     /** @return array{0: non-negative-int, 1: int<0, 999999>} */

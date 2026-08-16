@@ -23,6 +23,7 @@ use Coretsia\Kernel\Boot\ArtifactRuntimeInput;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
+use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
 use Coretsia\Platform\Worker\Worker\ApplicationWorker;
@@ -370,6 +371,15 @@ function coretsia_worker_child_assert_runtime_entrypoint_allowed(
         );
     } catch (RuntimeDriverConflictException|RuntimeDriverInvalidConfigException) {
         coretsia_worker_child_throw('runtime-driver-incompatible');
+    } catch (WorkerStartFailedException $exception) {
+        if (
+            $exception->reason()
+            === WorkerStartFailedException::REASON_MODULE_NOT_ENABLED
+        ) {
+            coretsia_worker_child_throw('runtime-entrypoint-incompatible');
+        }
+
+        coretsia_worker_child_throw('runtime-entrypoint-guard-failed');
     } catch (CoretsiaWorkerChildBootFailure $exception) {
         throw $exception;
     } catch (\Throwable) {

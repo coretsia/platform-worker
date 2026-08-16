@@ -18,8 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolStatus;
 use Coretsia\Platform\Worker\Runtime\WorkerStateStore;
@@ -32,7 +30,7 @@ final class WorkerStateStoreFilesystemTest extends PackageTestCase
     {
         $root = $this->temporaryDirectory('worker-state-store');
         $spec = WorkerSpecFactory::create(['workers' => 2]);
-        $store = new WorkerStateStore($root, new StableJsonEncoder(), new StableJsonDecoder());
+        $store = new WorkerStateStore($root);
         $state = $store->createState($spec, 1234, WorkerPoolStatus::RUNNING, 2);
 
         $store->write($spec, $state);
@@ -48,7 +46,7 @@ final class WorkerStateStoreFilesystemTest extends PackageTestCase
     {
         $root = $this->temporaryDirectory('worker-state-invalid');
         $spec = WorkerSpecFactory::create();
-        $store = new WorkerStateStore($root, new StableJsonEncoder(), new StableJsonDecoder());
+        $store = new WorkerStateStore($root);
         self::assertNull($store->readSnapshot($spec));
 
         \mkdir(\dirname($root . '/' . $spec->statePath()), 0777, true);

@@ -18,8 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Communication\WorkerControlCredential;
 use Coretsia\Platform\Worker\Communication\WorkerControlOperation;
 use Coretsia\Platform\Worker\Communication\WorkerControlProtocol;
@@ -168,10 +166,7 @@ final class WorkerControlAuthenticationTest extends PackageTestCase
     private function server(string $prefix): array
     {
         $root = $this->temporaryDirectory($prefix);
-        $protocol = new WorkerControlProtocol(
-            new StableJsonEncoder(),
-            new StableJsonDecoder(),
-        );
+        $protocol = new WorkerControlProtocol();
         $spec = WorkerSpecFactory::create([
             'driver' => 'proc',
             'control' => ['transport' => 'tcp'],

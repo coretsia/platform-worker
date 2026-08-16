@@ -35,7 +35,6 @@ final readonly class WorkerProcessGuardianProtocol
     public const int VERSION = 1;
     public const int MAX_FRAME_BYTES = 65_536;
 
-    public const string OPERATION_HELLO = 'hello';
     public const string OPERATION_CLAIM = 'claim';
     public const string OPERATION_SPAWN = 'spawn';
     public const string OPERATION_POLL = 'poll';
@@ -56,7 +55,6 @@ final readonly class WorkerProcessGuardianProtocol
     public const string ERROR_OPERATION_FAILED = 'operation-failed';
 
     private const array OPERATIONS = [
-        self::OPERATION_HELLO => true,
         self::OPERATION_CLAIM => true,
         self::OPERATION_SPAWN => true,
         self::OPERATION_POLL => true,
@@ -75,12 +73,6 @@ final readonly class WorkerProcessGuardianProtocol
         self::ERROR_PROCESS_HOST_FAILED => true,
         self::ERROR_OPERATION_FAILED => true,
     ];
-
-    public function __construct(
-        private StableJsonEncoder $encoder,
-        private StableJsonDecoder $decoder,
-    ) {
-    }
 
     /** @param array<int|string, mixed> $payload */
     public function encodeRequest(int $requestId, string $operation, array $payload): string
@@ -185,7 +177,7 @@ final readonly class WorkerProcessGuardianProtocol
     private function encode(array $value): string
     {
         try {
-            $frame = $this->encoder->encodeMap($value);
+            $frame = StableJsonEncoder::encodeStableMap($value);
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::processGuardianFailed();
         }
@@ -205,7 +197,7 @@ final readonly class WorkerProcessGuardianProtocol
         }
 
         try {
-            return $this->decoder->decodeMap($frame);
+            return StableJsonDecoder::decodeStableMap($frame);
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::processGuardianFailed();
         }
@@ -228,14 +220,6 @@ final readonly class WorkerProcessGuardianProtocol
     /** @param array<int|string, mixed> $payload */
     private static function assertRequestPayload(string $operation, array $payload): void
     {
-        if ($operation === self::OPERATION_HELLO) {
-            if (\array_keys($payload) !== ['token'] || !\is_string($payload['token'])) {
-                throw WorkerLifecycleFailedException::processGuardianFailed();
-            }
-            self::assertToken($payload['token']);
-            return;
-        }
-
         if ($operation === self::OPERATION_CLAIM) {
             if (
                 \array_keys($payload) !== ['force_kill_timeout_ms', 'skeleton_root', 'stop_timeout_ms']
@@ -322,13 +306,6 @@ final readonly class WorkerProcessGuardianProtocol
             }
         }
         return true;
-    }
-
-    private static function assertToken(string $token): void
-    {
-        if (\preg_match('/\A[a-f0-9]{64}\z/', $token) !== 1) {
-            throw WorkerLifecycleFailedException::processGuardianFailed();
-        }
     }
 
     private static function assertTimeout(int $timeoutMs): void

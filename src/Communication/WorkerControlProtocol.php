@@ -34,12 +34,6 @@ final readonly class WorkerControlProtocol
 {
     public const int MAX_FRAME_BYTES = 4096;
 
-    public function __construct(
-        private StableJsonEncoder $encoder,
-        private StableJsonDecoder $decoder,
-    ) {
-    }
-
     public function encodeRequest(
         #[\SensitiveParameter]
         WorkerControlRequest $request,
@@ -78,7 +72,7 @@ final readonly class WorkerControlProtocol
         array $value,
     ): string {
         try {
-            $frame = $this->encoder->encodeMap($value);
+            $frame = StableJsonEncoder::encodeStableMap($value);
         } catch (\Throwable) {
             throw WorkerCommunicationFailedException::communicationFailed();
         }
@@ -104,7 +98,7 @@ final readonly class WorkerControlProtocol
             throw WorkerCommunicationFailedException::communicationFailed();
         }
         try {
-            return $this->decoder->decodeMap($frame);
+            return StableJsonDecoder::decodeStableMap($frame);
         } catch (\Throwable) {
             throw WorkerCommunicationFailedException::communicationFailed();
         }

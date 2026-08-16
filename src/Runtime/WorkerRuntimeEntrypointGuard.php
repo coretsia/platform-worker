@@ -20,17 +20,21 @@ namespace Coretsia\Platform\Worker\Runtime;
 
 use Coretsia\Contracts\Config\ConfigRepositoryInterface;
 use Coretsia\Kernel\Module\ModulePlan;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
+use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Internal\WorkerRuntimeDriverContributions;
+use Coretsia\Platform\Worker\Module\WorkerModule;
 
 /**
  * Worker-owned runtime entrypoint compatibility boundary.
  *
- * This boundary maps an already-normalized WorkerPoolSpec to explicit Kernel
- * runtime-driver contributions and delegates canonical matrix and module
- * compatibility validation to RuntimeEntrypointGuard.
+ * WorkerRuntimeEntrypointGuard validates the Worker-owned
+ * WorkerModule::MODULE_ID participation precondition, maps an
+ * already-normalized WorkerPoolSpec to explicit runtime-driver contributions,
+ * and delegates only Kernel-owned runtime-driver matrix resolution to
+ * RuntimeDriverResolver.
  *
  * Worker entrypoints, including the shipped child launcher, must use this
  * boundary instead of importing Worker package-internal mapping helpers.
@@ -40,14 +44,13 @@ use Coretsia\Platform\Worker\Internal\WorkerRuntimeDriverContributions;
  */
 final readonly class WorkerRuntimeEntrypointGuard
 {
-    private const string MODULE_PLATFORM_WORKER = 'platform.worker';
-
     public function __construct(
-        private RuntimeEntrypointGuard $kernelEntrypointGuard,
+        private RuntimeDriverResolver $runtimeDriverResolver,
     ) {
     }
 
     /**
+     * @throws WorkerStartFailedException
      * @throws RuntimeDriverConflictException
      * @throws RuntimeDriverInvalidConfigException
      */
@@ -56,16 +59,13 @@ final readonly class WorkerRuntimeEntrypointGuard
         ModulePlan $modulePlan,
         WorkerPoolSpec $spec,
     ): void {
-        if (!$modulePlan->hasEnabledModule(self::MODULE_PLATFORM_WORKER)) {
-            throw RuntimeDriverInvalidConfigException::requiresPlatformWorkerModule();
+        if (!$modulePlan->hasEnabledModule(WorkerModule::MODULE_ID)) {
+            throw WorkerStartFailedException::moduleNotEnabled();
         }
 
-        $this->kernelEntrypointGuard->assertEntrypointAllowed(
+        $this->runtimeDriverResolver->resolve(
             config: $config,
-            modulePlan: $modulePlan,
-            runtimeDriverContributions: WorkerRuntimeDriverContributions::fromSpec(
-                $spec,
-            ),
+            contributions: WorkerRuntimeDriverContributions::fromSpec($spec),
         );
     }
 }

@@ -16,8 +16,8 @@ declare(strict_types=1);
  * See LICENSE and NOTICE in the project root for full license information.
  */
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\Proc\WorkerProcProcessHostClient;
 use Coretsia\Platform\Worker\Process\Proc\WorkerProcProcessHostProtocol;
 
@@ -42,10 +42,8 @@ if (!\is_dir($runtimeRoot) && !@\mkdir($runtimeRoot, 0777, true) && !\is_dir($ru
 $client = new WorkerProcProcessHostClient(
     command: [\PHP_BINARY, __DIR__ . '/../../bin/coretsia-worker-proc-host'],
     workingDirectory: $frameworkRoot,
-    protocol: new WorkerProcProcessHostProtocol(
-        new StableJsonEncoder(),
-        new StableJsonDecoder(),
-    ),
+    protocol: new WorkerProcProcessHostProtocol(),
+    bootstrapLauncher: new WorkerProcessBootstrapLauncher(new WorkerProcessBootstrapProtocol()),
 );
 
 try {

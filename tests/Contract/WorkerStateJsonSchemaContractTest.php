@@ -18,7 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Contract;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
 use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolStatus;
 use Coretsia\Platform\Worker\Runtime\WorkerStateStore;
@@ -30,12 +29,7 @@ final class WorkerStateJsonSchemaContractTest extends PackageTestCase
     public function testWrittenJsonIsStableExactAndPayloadFree(): void
     {
         $root = $this->temporaryDirectory('worker-state-json');
-        $encoder = new StableJsonEncoder();
-        $store = new WorkerStateStore(
-            $root,
-            $encoder,
-            new StableJsonDecoder(),
-        );
+        $store = new WorkerStateStore($root);
         $spec = WorkerSpecFactory::create();
 
         $state = $store->createState(
@@ -52,7 +46,7 @@ final class WorkerStateJsonSchemaContractTest extends PackageTestCase
         );
 
         self::assertSame(
-            $encoder->encodeMap($state->toArray()),
+            StableJsonEncoder::encodeStableMap($state->toArray()),
             $bytes,
         );
         self::assertStringNotContainsString(

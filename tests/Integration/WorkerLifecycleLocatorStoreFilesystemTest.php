@@ -18,8 +18,6 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Communication\WorkerControlCredential;
 use Coretsia\Platform\Worker\Exception\WorkerCommunicationFailedException;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLocator;
@@ -285,8 +283,6 @@ final class WorkerLifecycleLocatorStoreFilesystemTest extends PackageTestCase
     {
         return new WorkerLifecycleLocatorStore(
             skeletonRoot: $root,
-            encoder: new StableJsonEncoder(),
-            decoder: new StableJsonDecoder(),
         );
     }
 }

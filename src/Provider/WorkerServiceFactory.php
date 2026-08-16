@@ -24,11 +24,9 @@ use Coretsia\Contracts\Observability\Tracing\TracerPortInterface;
 use Coretsia\Contracts\Runtime\KernelRuntimeInterface;
 use Coretsia\Contracts\Worker\WorkerTaskSourceInterface;
 use Coretsia\Contracts\Worker\WorkerTaskType;
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Foundation\Tag\TagRegistry;
 use Coretsia\Foundation\Time\Stopwatch;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
 use Coretsia\Kernel\Runtime\RuntimePathContext;
 use Coretsia\Platform\Worker\Communication\WorkerChildReadinessChannel;
 use Coretsia\Platform\Worker\Communication\WorkerControlClient;
@@ -39,12 +37,13 @@ use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 use Coretsia\Platform\Worker\Internal\WorkerProcessCapabilities;
 use Coretsia\Platform\Worker\Internal\WorkerProcessDriverResolverInterface;
 use Coretsia\Platform\Worker\Internal\WorkerProcessGuardianInterface;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\ContainerWorkerProcessDriverResolver;
 use Coretsia\Platform\Worker\Process\Driver\PcntlWorkerProcessDriver;
 use Coretsia\Platform\Worker\Process\Driver\ProcWorkerProcessDriver;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianClient;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianProtocol;
-use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianTransport;
 use Coretsia\Platform\Worker\Process\WorkerChildCommandBuilder;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLocatorStore;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLock;
@@ -113,28 +112,23 @@ final class WorkerServiceFactory
         );
     }
 
-    public function workerRuntimeEntrypointGuard(RuntimeEntrypointGuard $guard): WorkerRuntimeEntrypointGuard
-    {
-        return new WorkerRuntimeEntrypointGuard($guard);
+    public function workerRuntimeEntrypointGuard(
+        RuntimeDriverResolver $resolver,
+    ): WorkerRuntimeEntrypointGuard {
+        return new WorkerRuntimeEntrypointGuard($resolver);
     }
 
     public function workerStateStore(
         RuntimePathContext $runtimePaths,
-        StableJsonEncoder $encoder,
-        StableJsonDecoder $decoder,
     ): WorkerStateStore {
-        return new WorkerStateStore($runtimePaths->skeletonRoot(), $encoder, $decoder);
+        return new WorkerStateStore($runtimePaths->skeletonRoot());
     }
 
     public function workerLifecycleLocatorStore(
         RuntimePathContext $runtimePaths,
-        StableJsonEncoder $encoder,
-        StableJsonDecoder $decoder,
     ): WorkerLifecycleLocatorStore {
         return new WorkerLifecycleLocatorStore(
             skeletonRoot: $runtimePaths->skeletonRoot(),
-            encoder: $encoder,
-            decoder: $decoder,
         );
     }
 
@@ -153,11 +147,9 @@ final class WorkerServiceFactory
         return new WorkerControlTransport($runtimePaths->skeletonRoot());
     }
 
-    public function workerControlProtocol(
-        StableJsonEncoder $encoder,
-        StableJsonDecoder $decoder,
-    ): WorkerControlProtocol {
-        return new WorkerControlProtocol($encoder, $decoder);
+    public function workerControlProtocol(): WorkerControlProtocol
+    {
+        return new WorkerControlProtocol();
     }
 
     public function workerControlServer(
@@ -307,23 +299,17 @@ final class WorkerServiceFactory
         return new ContainerWorkerProcessDriverResolver($container);
     }
 
-    public function workerProcessGuardianProtocol(
-        StableJsonEncoder $encoder,
-        StableJsonDecoder $decoder,
-    ): WorkerProcessGuardianProtocol {
-        return new WorkerProcessGuardianProtocol($encoder, $decoder);
-    }
-
-    public function workerProcessGuardianTransport(): WorkerProcessGuardianTransport
+    public function workerProcessGuardianProtocol(): WorkerProcessGuardianProtocol
     {
-        return new WorkerProcessGuardianTransport();
+        return new WorkerProcessGuardianProtocol();
     }
 
     public function workerProcessGuardianClient(
         RuntimePathContext $runtimePaths,
         WorkerProcessGuardianProtocol $protocol,
-        WorkerProcessGuardianTransport $transport,
     ): WorkerProcessGuardianClient {
+        $bootstrapProtocol = new WorkerProcessBootstrapProtocol();
+
         return new WorkerProcessGuardianClient(
             command: [
                 self::phpBinary(),
@@ -332,7 +318,7 @@ final class WorkerServiceFactory
             bootstrapWorkingDirectory: $runtimePaths->skeletonRoot(),
             skeletonRoot: $runtimePaths->skeletonRoot(),
             protocol: $protocol,
-            transport: $transport,
+            bootstrapLauncher: new WorkerProcessBootstrapLauncher($bootstrapProtocol),
         );
     }
 

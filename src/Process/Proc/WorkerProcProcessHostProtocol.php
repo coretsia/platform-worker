@@ -32,7 +32,7 @@ use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
  * @phpstan-type HostRequest array{
  *     version: 1,
  *     request_id: positive-int,
- *     operation: 'hello'|'spawn'|'poll'|'terminate'|'kill'|'close'|'shutdown',
+ *     operation: 'spawn'|'poll'|'terminate'|'kill'|'close'|'shutdown',
  *     payload: array<int|string, mixed>
  * }
  * @phpstan-type HostResponse array{
@@ -47,7 +47,6 @@ final readonly class WorkerProcProcessHostProtocol
     public const int VERSION = 1;
     public const int MAX_FRAME_BYTES = 65_536;
 
-    public const string OPERATION_HELLO = 'hello';
     public const string OPERATION_SPAWN = 'spawn';
     public const string OPERATION_POLL = 'poll';
     public const string OPERATION_TERMINATE = 'terminate';
@@ -64,7 +63,6 @@ final readonly class WorkerProcProcessHostProtocol
     public const string ERROR_OPERATION_FAILED = 'operation-failed';
 
     private const array OPERATIONS = [
-        self::OPERATION_HELLO => true,
         self::OPERATION_SPAWN => true,
         self::OPERATION_POLL => true,
         self::OPERATION_TERMINATE => true,
@@ -79,12 +77,6 @@ final readonly class WorkerProcProcessHostProtocol
         self::ERROR_CHILD_RUNNING => true,
         self::ERROR_OPERATION_FAILED => true,
     ];
-
-    public function __construct(
-        private StableJsonEncoder $encoder,
-        private StableJsonDecoder $decoder,
-    ) {
-    }
 
     /**
      * @param array<int|string, mixed> $payload
@@ -287,7 +279,7 @@ final readonly class WorkerProcProcessHostProtocol
     private function encode(array $value): string
     {
         try {
-            $frame = $this->encoder->encodeMap($value);
+            $frame = StableJsonEncoder::encodeStableMap($value);
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::processHostFailed();
         }
@@ -315,7 +307,7 @@ final readonly class WorkerProcProcessHostProtocol
         }
 
         try {
-            return $this->decoder->decodeMap($frame);
+            return StableJsonDecoder::decodeStableMap($frame);
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::processHostFailed();
         }
@@ -347,19 +339,6 @@ final readonly class WorkerProcProcessHostProtocol
         string $operation,
         array $payload,
     ): void {
-        if ($operation === self::OPERATION_HELLO) {
-            if (
-                \array_keys($payload) !== ['token']
-                || !\is_string($payload['token'])
-            ) {
-                throw WorkerLifecycleFailedException::processHostFailed();
-            }
-
-            self::assertToken($payload['token']);
-
-            return;
-        }
-
         if ($operation === self::OPERATION_SPAWN) {
             if (
                 \array_keys($payload) !== [

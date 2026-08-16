@@ -66,5 +66,13 @@ final class CrossCuttingNoopDoesNotThrowTest extends TestCase
             [WorkerServiceProvider::class],
             $composer['extra']['coretsia']['providers'],
         );
+        self::assertArrayNotHasKey(
+            'coretsia/platform-http',
+            $composer['require'],
+        );
+        self::assertNotContains(
+            'platform.http',
+            $composer['extra']['coretsia']['requires'],
+        );
     }
 }

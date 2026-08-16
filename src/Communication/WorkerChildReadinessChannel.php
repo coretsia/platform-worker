@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Communication;
 
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
+use Coretsia\Platform\Worker\Internal\WorkerLoopbackListener;
 use Coretsia\Platform\Worker\Process\WorkerChildProcess;
 
 /**
@@ -44,12 +45,7 @@ final readonly class WorkerChildReadinessChannel
      */
     public function createProcessEndpoint(): WorkerChildReadinessEndpoint
     {
-        $listener = @\stream_socket_server(
-            'tcp://127.0.0.1:0',
-            $errorCode,
-            $errorMessage,
-            \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN,
-        );
+        $listener = WorkerLoopbackListener::create();
 
         if (
             !\is_resource($listener)

@@ -34,50 +34,125 @@ final class ProcWorkerProcessDriverSafetyContractTest extends PackageTestCase
         }
     }
 
-    public function testGuardianStartsProcHostBeforeAcceptingSupervisorAndClaimingFence(): void
+    public function testGuardianConsumesBootstrapBeforeProcHostStartAndSupervisorAuthentication(): void
     {
-        $bin = self::source('bin/coretsia-worker-guardian');
-        $runtime = self::source('src/Process/Guardian/WorkerProcessGuardianRuntime.php');
-        $startHost = \strpos($bin, '$processHost->start(');
-        $accept = \strpos($bin, '$transport->accept(');
+        $entrypoint = self::source('src/Process/Entrypoint/worker-guardian.php');
+        $client = self::source('src/Process/Bootstrap/WorkerProcessBootstrapClient.php');
+
+        $receive = \strpos($entrypoint, '$bootstrapClient->receiveGuardian()');
+        $startHost = \strpos($entrypoint, '$processHost->start(');
+        $connect = \strpos($entrypoint, '$bootstrapClient->connect()');
+        self::assertIsInt($receive);
         self::assertIsInt($startHost);
-        self::assertIsInt($accept);
-        self::assertLessThan($accept, $startHost);
-        self::assertStringContainsString('$lock->acquire()', $runtime);
+        self::assertIsInt($connect);
+        self::assertLessThan($startHost, $receive);
+        self::assertLessThan($connect, $startHost);
+        self::assertStringContainsString('finally {', $client);
+        self::assertStringContainsString('@\fclose($stream);', $client);
     }
 
-    public function testProcessHostRotatesGuardianConnectionAroundEveryProcOpen(): void
+    public function testProcHostConsumesBootstrapBeforeAnyWorkerProcOpen(): void
     {
-        $host = self::source('bin/coretsia-worker-proc-host');
+        $entrypoint = self::source('src/Process/Entrypoint/worker-proc-host.php');
+        $client = self::source('src/Process/Bootstrap/WorkerProcessBootstrapClient.php');
+        $runtime = self::source('src/Process/Entrypoint/WorkerProcProcessHostEntrypointRuntime.php');
+
+        $receive = \strpos(
+            $entrypoint,
+            '$bootstrapClient->receiveProcHost()',
+        );
+        $connect = \strpos(
+            $entrypoint,
+            '$bootstrapClient->connect()',
+        );
+        $runtimeConstruction = \strpos(
+            $entrypoint,
+            'new WorkerProcProcessHostEntrypointRuntime',
+        );
+        $runtimeRun = \strpos(
+            $entrypoint,
+            '$runtime->run()',
+        );
+
+        self::assertIsInt($receive);
+        self::assertIsInt($connect);
+        self::assertIsInt($runtimeConstruction);
+        self::assertIsInt($runtimeRun);
+
+        self::assertLessThan(
+            $connect,
+            $receive,
+            'ProcHost bootstrap input must be consumed before bootstrap authentication.',
+        );
+        self::assertLessThan(
+            $runtimeConstruction,
+            $connect,
+            'ProcHost authentication must complete before runtime construction.',
+        );
+        self::assertLessThan(
+            $runtimeRun,
+            $runtimeConstruction,
+            'ProcHost runtime must not run before bootstrap completion.',
+        );
+
+        self::assertStringContainsString(
+            '$frame = $this->readAndCloseBootstrapInput();',
+            $client,
+        );
+        self::assertStringContainsString(
+            'finally {',
+            $client,
+        );
+        self::assertStringContainsString(
+            '@\fclose($stream);',
+            $client,
+        );
+
+        self::assertStringContainsString(
+            'proc_open(',
+            $runtime,
+        );
+        self::assertStringNotContainsString(
+            'proc_open(',
+            $entrypoint,
+        );
+    }
+
+    public function testProcessHostRotatesGuardianConnectionAroundEveryWorkerProcOpen(): void
+    {
+        $runtime = self::source('src/Process/Entrypoint/WorkerProcProcessHostEntrypointRuntime.php');
         $client = self::source('src/Process/Proc/WorkerProcProcessHostClient.php');
         self::assertStringContainsString('WorkerProcProcessHostHandoffEndpoint::create', $client);
-        self::assertStringContainsString('$this->closeConnection();', $host);
-        self::assertStringContainsString('$this->spawn($payload)', $host);
-        self::assertStringContainsString('$this->transport->connect(', $host);
+        self::assertStringContainsString('$this->closeConnection();', $runtime);
+        self::assertStringContainsString('$this->spawn($payload)', $runtime);
+        self::assertStringContainsString('$this->transport->connect(', $runtime);
     }
 
-    public function testProcCapabilityIncludesGuardianAndProcessHostTransportRequirements(): void
+    public function testProcCapabilityIncludesSecureBootstrapTransportAndSignalRequirements(): void
     {
         $capabilities = self::source('src/Internal/WorkerProcessCapabilities.php');
         foreach (
             [
-                'guardianTransportAvailable',
+                'processBootstrapAvailable',
                 'procProcessHostTransportAvailable',
                 'procDriverAvailable'
             ] as $required
         ) {
             self::assertStringContainsString($required, $capabilities);
         }
+        self::assertStringNotContainsString('guardianTransportAvailable', $capabilities);
         foreach (
             [
                 'proc_open',
                 'proc_get_status',
                 'proc_terminate',
                 'proc_close',
-                'stream_socket_server',
                 'stream_socket_client'
             ] as $fn
         ) {
+            self::assertStringContainsString("\\function_exists('{$fn}')", $capabilities);
+        }
+        foreach (['sapi_windows_set_ctrl_handler', 'pcntl_async_signals', 'pcntl_signal'] as $fn) {
             self::assertStringContainsString("\\function_exists('{$fn}')", $capabilities);
         }
     }

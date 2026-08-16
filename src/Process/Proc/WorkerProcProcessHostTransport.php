@@ -22,7 +22,7 @@ use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 use Coretsia\Platform\Worker\Internal\WorkerProcessCapabilities;
 
 /**
- * Creates bounded private proc-host loopback connections.
+ * Connects ProcHost only to guardian-owned per-worker handoff endpoints.
  *
  * Descriptor isolation does not depend on platform-specific close-on-exec
  * flags. Before every worker-child launch, the host closes its authenticated
@@ -31,46 +31,7 @@ use Coretsia\Platform\Worker\Internal\WorkerProcessCapabilities;
  */
 final class WorkerProcProcessHostTransport
 {
-    private const int ACCEPT_TIMEOUT_SECONDS = 10;
     private const int CONNECT_RETRY_US = 1_000;
-
-    /**
-     * Accepts the initial private guardian connection.
-     *
-     * @return resource
-     */
-    public function accept(int $port): mixed
-    {
-        if (
-            $port < 1
-            || $port > 65_535
-            || !WorkerProcessCapabilities::procProcessHostTransportAvailable()
-        ) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        $listener = @\stream_socket_server(
-            'tcp://127.0.0.1:' . $port,
-            $errorCode,
-            $errorMessage,
-            \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN,
-        );
-
-        if (!\is_resource($listener)) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        try {
-            $connection = @\stream_socket_accept(
-                $listener,
-                self::ACCEPT_TIMEOUT_SECONDS,
-            );
-        } finally {
-            @\fclose($listener);
-        }
-
-        return self::normalizeConnection($connection);
-    }
 
     /**
      * Connects the host to one guardian-owned handoff endpoint.

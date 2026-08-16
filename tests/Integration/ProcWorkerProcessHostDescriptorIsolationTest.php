@@ -18,9 +18,9 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Internal\WorkerProcessCapabilities;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\Proc\WorkerProcProcessHostHandoffEndpoint;
 use Coretsia\Platform\Worker\Process\Proc\WorkerProcProcessHostProtocol;
 use Coretsia\Platform\Worker\Tests\Support\PackageTestCase;
@@ -29,13 +29,10 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
 {
     public function testEverySpawnRotatesTheAuthenticatedConnectionBeforeChildLaunch(): void
     {
-        if (!WorkerProcessCapabilities::procDriverAvailable()) {
-            self::assertFalse(
-                WorkerProcessCapabilities::procDriverAvailable(),
-            );
-
-            return;
-        }
+        self::assertTrue(
+            WorkerProcessCapabilities::procDriverAvailable(),
+            'PROC guardian backend must be available in the integration-test environment.',
+        );
 
         $root = $this->temporaryDirectory('proc-host-descriptor-isolation');
         $started = self::startHost();
@@ -46,19 +43,9 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
         $childPids = [];
 
         try {
-            $connection = self::connect(
-                port: $started['port'],
-                timeoutMs: 2_000,
-            );
+            $connection = $started['connection'];
             $connections[] = $connection;
 
-            self::request(
-                connection: $connection,
-                protocol: $protocol,
-                requestId: 1,
-                operation: WorkerProcProcessHostProtocol::OPERATION_HELLO,
-                payload: ['token' => $started['token']],
-            );
 
             for ($index = 0; $index < 2; $index++) {
                 $previousConnection = $connection;
@@ -175,13 +162,10 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
 
     public function testFailedSpawnRestoresAuthenticatedConnection(): void
     {
-        if (!WorkerProcessCapabilities::procDriverAvailable()) {
-            self::assertFalse(
-                WorkerProcessCapabilities::procDriverAvailable(),
-            );
-
-            return;
-        }
+        self::assertTrue(
+            WorkerProcessCapabilities::procDriverAvailable(),
+            'PROC guardian backend must be available in the integration-test environment.',
+        );
 
         $root = $this->temporaryDirectory('proc-host-failed-spawn-handoff');
         $started = self::startHost();
@@ -189,19 +173,9 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
         $connections = [];
 
         try {
-            $connection = self::connect(
-                port: $started['port'],
-                timeoutMs: 2_000,
-            );
+            $connection = $started['connection'];
             $connections[] = $connection;
 
-            self::request(
-                connection: $connection,
-                protocol: $protocol,
-                requestId: 1,
-                operation: WorkerProcProcessHostProtocol::OPERATION_HELLO,
-                payload: ['token' => $started['token']],
-            );
 
             $failed = self::spawnThroughHandoff(
                 connection: $connection,
@@ -275,13 +249,10 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
 
     public function testFailedHandoffTerminatesSpawnedChildAndHost(): void
     {
-        if (!WorkerProcessCapabilities::procDriverAvailable()) {
-            self::assertFalse(
-                WorkerProcessCapabilities::procDriverAvailable(),
-            );
-
-            return;
-        }
+        self::assertTrue(
+            WorkerProcessCapabilities::procDriverAvailable(),
+            'PROC guardian backend must be available in the integration-test environment.',
+        );
 
         $root = $this->temporaryDirectory('proc-host-failed-handoff');
         $pidFile = $root . '/child.pid';
@@ -293,18 +264,8 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
         $finished = null;
 
         try {
-            $connection = self::connect(
-                port: $started['port'],
-                timeoutMs: 2_000,
-            );
+            $connection = $started['connection'];
 
-            self::request(
-                connection: $connection,
-                protocol: $protocol,
-                requestId: 1,
-                operation: WorkerProcProcessHostProtocol::OPERATION_HELLO,
-                payload: ['token' => $started['token']],
-            );
 
             self::writeRequest(
                 connection: $connection,
@@ -326,16 +287,25 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
             );
 
             self::waitUntil(
-                static fn (): bool => \is_file($pidFile),
+                static function () use ($pidFile): bool {
+                    $pidBytes = @\file_get_contents($pidFile);
+
+                    return \is_string($pidBytes) && \preg_match('/\A[1-9][0-9]*\r?\n\z/D', $pidBytes) === 1;
+                },
                 2_000,
-                'The failed-handoff child did not publish its PID.',
+                'The failed-handoff child did not publish a valid PID.',
             );
 
             $pidBytes = @\file_get_contents($pidFile);
+
             self::assertIsString($pidBytes);
+
             $pidValue = \trim($pidBytes);
+
             self::assertTrue(\ctype_digit($pidValue));
+
             $childPid = (int)$pidValue;
+
             self::assertGreaterThan(0, $childPid);
 
             self::waitUntil(
@@ -355,12 +325,8 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
                 'The process host left an unidentified child alive after failed handoff.',
             );
 
-            $finished = self::finishProcess(
-                $started['process'],
-                $started['pipes'],
-                2_000,
-            );
-            self::assertNotSame(0, $finished['exit_code']);
+            $finished = self::finishHost($started['process'], 2_000);
+            self::assertNotSame(0, $finished);
         } finally {
             if (!\is_file($releaseFile)) {
                 @\file_put_contents(
@@ -388,48 +354,57 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
         }
     }
 
-    /**
-     * @return array{
-     *     process: resource,
-     *     pipes: array<int, resource>,
-     *     port: int<1, 65535>,
-     *     token: non-empty-string
-     * }
-     */
+    public function testHandoffListenerRetainsExclusivePortOwnership(): void
+    {
+        $endpoint = WorkerProcProcessHostHandoffEndpoint::create();
+        $second = null;
+
+        try {
+            $second = @\stream_socket_server(
+                'tcp://127.0.0.1:' . $endpoint->port(),
+                $errorCode,
+                $errorMessage,
+            );
+
+            self::assertFalse(
+                \is_resource($second),
+                'The proc-host handoff listener must retain exclusive ownership of its port.',
+            );
+        } finally {
+            if (\is_resource($second)) {
+                @\fclose($second);
+            }
+
+            $endpoint->close();
+        }
+    }
+
+    /** @return array{process: resource, connection: resource} */
     private static function startHost(): array
     {
-        $port = self::unusedTcpPort();
-        $token = \bin2hex(\random_bytes(32));
-        $hostRoot = \is_file(
-            self::frameworkRoot() . '/vendor/autoload.php',
-        )
+        $bootstrapProtocol = new WorkerProcessBootstrapProtocol();
+        $launcher = new WorkerProcessBootstrapLauncher($bootstrapProtocol);
+
+        $hostRoot = \is_file(self::frameworkRoot() . '/vendor/autoload.php')
             ? self::frameworkRoot()
             : self::packageRoot();
-        $started = self::startProcess(
-            [
-                \PHP_BINARY,
-                self::packageRoot()
-                . '/bin/coretsia-worker-proc-host',
-                '--coretsia-proc-host-port=' . $port,
-                '--coretsia-proc-host-token=' . $token,
-            ],
-            $hostRoot,
+
+        $session = $launcher->launchAuthenticatedChild(
+            command: [\PHP_BINARY, self::packageRoot() . '/bin/coretsia-worker-proc-host'],
+            workingDirectory: $hostRoot,
+            role: WorkerProcessBootstrapProtocol::ROLE_PROC_HOST,
+            timeoutMs: 3_000,
         );
 
         return [
-            'process' => $started['process'],
-            'pipes' => $started['pipes'],
-            'port' => $port,
-            'token' => $token,
+            'process' => $session['process'],
+            'connection' => $session['connection'],
         ];
     }
 
     private static function protocol(): WorkerProcProcessHostProtocol
     {
-        return new WorkerProcProcessHostProtocol(
-            new StableJsonEncoder(),
-            new StableJsonDecoder(),
-        );
+        return new WorkerProcProcessHostProtocol();
     }
 
     /**
@@ -507,39 +482,6 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
         return $response['payload'];
     }
 
-    /**
-     * @return resource
-     */
-    private static function connect(
-        int $port,
-        int $timeoutMs,
-    ): mixed {
-        $deadline = \hrtime(true) + ($timeoutMs * 1_000_000);
-
-        do {
-            $connection = @\stream_socket_client(
-                'tcp://127.0.0.1:' . $port,
-                $errorCode,
-                $errorMessage,
-                0.1,
-                \STREAM_CLIENT_CONNECT,
-            );
-
-            if (\is_resource($connection)) {
-                if (!@\stream_set_timeout($connection, 1, 0)) {
-                    @\fclose($connection);
-
-                    self::fail('Failed to configure the host connection timeout.');
-                }
-
-                return $connection;
-            }
-
-            \usleep(10_000);
-        } while (\hrtime(true) < $deadline);
-
-        self::fail('Failed to connect to the proc process host.');
-    }
 
     /**
      * @param resource $connection
@@ -667,27 +609,42 @@ final class ProcWorkerProcessHostDescriptorIsolationTest extends PackageTestCase
         self::fail('Timed out reading a proc-host response.');
     }
 
-    /**
-     * @param array{process: resource, pipes: array<int, resource>} $started
-     */
+    /** @param array{process: resource, connection: resource} $started */
     private static function terminateHost(array $started): void
     {
-        $status = @\proc_get_status($started['process']);
-
-        if (
-            \is_array($status)
-            && ($status['running'] ?? false) === true
-        ) {
-            @\proc_terminate(
-                $started['process'],
-                9,
-            );
+        if (\is_resource($started['connection'])) {
+            @\fclose($started['connection']);
         }
+        $status = @\proc_get_status($started['process']);
+        if (\is_array($status) && ($status['running'] ?? false) === true) {
+            @\proc_terminate($started['process'], 9);
+        }
+        self::finishHost($started['process'], 2_000);
+    }
 
-        self::finishProcess(
-            $started['process'],
-            $started['pipes'],
-            2_000,
-        );
+    /** @param resource $process */
+    private static function finishHost(mixed $process, int $timeoutMs): int
+    {
+        $deadline = \hrtime(true) + ($timeoutMs * 1_000_000);
+        $reported = null;
+        do {
+            $status = @\proc_get_status($process);
+            if (!\is_array($status)) {
+                break;
+            }
+            if (($status['running'] ?? false) !== true) {
+                $reported = \is_int($status['exitcode'] ?? null) && $status['exitcode'] >= 0
+                    ? $status['exitcode']
+                    : null;
+                break;
+            }
+            \usleep(10_000);
+        } while (\hrtime(true) < $deadline);
+        $status = @\proc_get_status($process);
+        if (\is_array($status) && ($status['running'] ?? false) === true) {
+            @\proc_terminate($process, 9);
+        }
+        $closed = @\proc_close($process);
+        return $reported ?? (\is_int($closed) ? $closed : 1);
     }
 }

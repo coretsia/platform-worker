@@ -46,8 +46,6 @@ final readonly class WorkerLifecycleLocatorStore
 
     public function __construct(
         private string $skeletonRoot,
-        private StableJsonEncoder $encoder,
-        private StableJsonDecoder $decoder,
     ) {
         if ($skeletonRoot === '' || \str_contains($skeletonRoot, "\0")) {
             throw new \InvalidArgumentException('worker-lifecycle-locator-root-invalid');
@@ -59,7 +57,7 @@ final readonly class WorkerLifecycleLocatorStore
         WorkerLifecycleLocator $locator,
     ): void {
         try {
-            $bytes = $this->encoder->encodeMap($locator->toArray());
+            $bytes = StableJsonEncoder::encodeStableMap($locator->toArray());
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::lifecycleLocatorFailed();
         }
@@ -192,7 +190,7 @@ final readonly class WorkerLifecycleLocatorStore
             }
 
             return WorkerLifecycleLocator::fromArray(
-                $this->decoder->decodeMap($bytes),
+                StableJsonDecoder::decodeStableMap($bytes),
             );
         } catch (\Throwable) {
             throw WorkerCommunicationFailedException::communicationFailed();

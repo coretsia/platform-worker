@@ -22,7 +22,7 @@ use Coretsia\Contracts\Cli\Command\CommandInterface;
 use Coretsia\Contracts\Module\ModuleId;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
 use Coretsia\Platform\Worker\Console\WorkerHealthCommand;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Console\WorkerStatusCommand;
@@ -192,7 +192,7 @@ final class WorkerCommandExceptionTaxonomyContractTest extends TestCase
             config: self::config(),
             modulePlan: self::plan(),
             runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
-                new RuntimeEntrypointGuard(),
+                new RuntimeDriverResolver(),
             ),
             factory: new WorkerServiceFactory(),
             supervisorResolver: new RecordingSupervisorResolver($supervisor),

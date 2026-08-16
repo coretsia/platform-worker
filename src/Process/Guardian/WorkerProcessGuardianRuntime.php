@@ -73,15 +73,10 @@ final class WorkerProcessGuardianRuntime
         }
     }
 
-    public function run(string $token): int
+    public function run(): int
     {
-        if (\preg_match('/\A[a-f0-9]{64}\z/', $token) !== 1) {
-            return 1;
-        }
-
         $this->installSignalHandlers();
         $buffer = '';
-        $authenticated = false;
 
         try {
             while (true) {
@@ -102,30 +97,6 @@ final class WorkerProcessGuardianRuntime
 
                 $requestId = $request['request_id'];
                 $operation = $request['operation'];
-
-                if (!$authenticated) {
-                    if (
-                        $operation !== WorkerProcessGuardianProtocol::OPERATION_HELLO
-                        || ($request['payload']['token'] ?? null) !== $token
-                    ) {
-                        $this->writeResponse(
-                            $this->protocol->encodeErrorResponse(
-                                $requestId,
-                                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
-                            )
-                        );
-                        return 1;
-                    }
-
-                    $authenticated = true;
-                    $this->writeResponse(
-                        $this->protocol->encodeOkResponse(
-                            $requestId,
-                            ['ready' => true],
-                        )
-                    );
-                    continue;
-                }
 
                 try {
                     $payload = $this->handle($operation, $request['payload']);
@@ -167,7 +138,10 @@ final class WorkerProcessGuardianRuntime
 
             if (!$this->claimed && $this->processHost instanceof WorkerProcProcessHostClient) {
                 try {
-                    $this->processHost->shutdown(self::REQUEST_TIMEOUT_MS);
+                    $this->processHost->shutdown(
+                        self::REQUEST_TIMEOUT_MS,
+                        allowForcedTermination: true,
+                    );
                 } catch (\Throwable) {
                 }
             }
@@ -198,7 +172,9 @@ final class WorkerProcessGuardianRuntime
             WorkerProcessGuardianProtocol::OPERATION_KILL => $this->signal($payload, true),
             WorkerProcessGuardianProtocol::OPERATION_CLOSE => $this->close($payload),
             WorkerProcessGuardianProtocol::OPERATION_RELEASE => $this->release(),
-            default => throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED),
+            default => throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+            ),
         };
     }
 
@@ -206,7 +182,9 @@ final class WorkerProcessGuardianRuntime
     private function claim(array $payload): array
     {
         if ($this->claimed || $this->released) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+            );
         }
 
         $root = $payload['skeleton_root'];
@@ -225,7 +203,9 @@ final class WorkerProcessGuardianRuntime
     private function spawn(array $payload): array
     {
         if ($this->nextChildId > 2_147_483_647) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+            );
         }
 
         /** @var non-empty-list<non-empty-string> $command */
@@ -242,13 +222,19 @@ final class WorkerProcessGuardianRuntime
                     timeoutMs: self::REQUEST_TIMEOUT_MS,
                 );
             } catch (WorkerStartFailedException) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_CHILD_START_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_CHILD_START_FAILED,
+                );
             } catch (\Throwable) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED,
+                );
             }
 
             if ($hostChild === null) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED,
+                );
             }
 
             $backendId = $hostChild->id();
@@ -277,12 +263,16 @@ final class WorkerProcessGuardianRuntime
             || !\function_exists('pcntl_waitpid')
             || !\function_exists('posix_kill')
         ) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_CHILD_START_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_CHILD_START_FAILED,
+            );
         }
 
         $pid = @\pcntl_fork();
         if ($pid === -1) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_FORK_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_FORK_FAILED,
+            );
         }
 
         if ($pid === 0) {
@@ -347,9 +337,15 @@ final class WorkerProcessGuardianRuntime
                 }
             } else {
                 if ($force) {
-                    $this->processHost?->kill($entry['backend_id'], self::REQUEST_TIMEOUT_MS);
+                    $this->processHost?->kill(
+                        $entry['backend_id'],
+                        self::REQUEST_TIMEOUT_MS,
+                    );
                 } else {
-                    $this->processHost?->terminate($entry['backend_id'], self::REQUEST_TIMEOUT_MS);
+                    $this->processHost?->terminate(
+                        $entry['backend_id'],
+                        self::REQUEST_TIMEOUT_MS,
+                    );
                 }
             }
         } catch (\Throwable) {
@@ -368,7 +364,9 @@ final class WorkerProcessGuardianRuntime
     {
         $childId = $this->childId($payload);
         if ($this->refreshExit($childId) === null) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_CHILD_RUNNING);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_CHILD_RUNNING,
+            );
         }
 
         $entry = $this->children[$childId];
@@ -376,7 +374,9 @@ final class WorkerProcessGuardianRuntime
             try {
                 $this->processHost?->close($entry['backend_id'], self::REQUEST_TIMEOUT_MS);
             } catch (\Throwable) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED,
+                );
             }
         }
 
@@ -388,14 +388,21 @@ final class WorkerProcessGuardianRuntime
     private function release(): array
     {
         if ($this->children !== []) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_CHILD_RUNNING);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_CHILD_RUNNING,
+            );
         }
 
         if ($this->processHost instanceof WorkerProcProcessHostClient) {
             try {
-                $this->processHost->shutdown(self::REQUEST_TIMEOUT_MS);
+                $this->processHost->shutdown(
+                    self::REQUEST_TIMEOUT_MS,
+                    allowForcedTermination: false,
+                );
             } catch (\Throwable) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_PROCESS_HOST_FAILED,
+                );
             }
         }
 
@@ -433,7 +440,10 @@ final class WorkerProcessGuardianRuntime
                     expected: !$signaled && $exitCode === 0,
                 );
             } else {
-                $exit = $this->processHost?->pollExit($entry['backend_id'], self::REQUEST_TIMEOUT_MS);
+                $exit = $this->processHost?->pollExit(
+                    $entry['backend_id'],
+                    self::REQUEST_TIMEOUT_MS,
+                );
                 if ($exit === null) {
                     return null;
                 }
@@ -455,49 +465,48 @@ final class WorkerProcessGuardianRuntime
         try {
             $this->signalAll(false);
             $this->waitAndCloseUntil(self::deadlineNs($this->stopTimeoutMs));
+        } catch (\Throwable) {
+        }
 
-            if ($this->children !== []) {
+        if ($this->children !== []) {
+            try {
                 $this->signalAll(true);
                 $this->waitAndCloseUntil(self::deadlineNs($this->forceKillTimeoutMs));
+            } catch (\Throwable) {
             }
+        }
 
-            /*
-             * Safety wins over availability: after forced termination was sent,
-             * never release the generation fence while an owned child remains.
-             * This loop is intentionally unbounded. An outer service manager may
-             * still terminate the complete unit if the OS cannot reap a process.
-             */
-            while ($this->children !== []) {
+        /*
+         * Safety wins over availability. Never release the generation fence while
+         * an owned worker remains. External service-unit containment is the only
+         * catastrophic escape if the OS cannot terminate or reap an owned process.
+         */
+        while ($this->children !== []) {
+            try {
+                $this->signalAll(true);
                 $this->waitAndCloseUntil(self::deadlineNs(1_000));
-                if ($this->children !== []) {
-                    $this->signalAll(true);
-                }
+            } catch (\Throwable) {
+                \usleep(self::LOOP_TICK_US);
             }
+        }
 
-            if ($this->processHost instanceof WorkerProcProcessHostClient) {
-                $this->processHost->shutdown(5_000);
-            }
-        } catch (\Throwable) {
-            /* Keep the fence held while retrying cleanup rather than overlapping generations. */
-            while ($this->children !== []) {
+        if ($this->processHost instanceof WorkerProcProcessHostClient) {
+            while (true) {
                 try {
-                    $this->signalAll(true);
-                    $this->waitAndCloseUntil(self::deadlineNs(1_000));
+                    $this->processHost->shutdown(
+                        5_000,
+                        allowForcedTermination: false,
+                    );
+                    break;
                 } catch (\Throwable) {
+                    /* Keep worker.lock held until nested ProcHost ownership is gone. */
                     \usleep(self::LOOP_TICK_US);
                 }
             }
-
-            if ($this->processHost instanceof WorkerProcProcessHostClient) {
-                try {
-                    $this->processHost->shutdown(5_000);
-                } catch (\Throwable) {
-                }
-            }
-        } finally {
-            $this->lifecycleLock?->release();
-            $this->released = true;
         }
+
+        $this->lifecycleLock?->release();
+        $this->released = true;
     }
 
     private function signalAll(bool $force): void
@@ -523,7 +532,10 @@ final class WorkerProcessGuardianRuntime
 
                     $entry = $this->children[$childId];
                     if ($this->driverName === 'proc') {
-                        $this->processHost?->close($entry['backend_id'], self::REQUEST_TIMEOUT_MS);
+                        $this->processHost?->close(
+                            $entry['backend_id'],
+                            self::REQUEST_TIMEOUT_MS,
+                        );
                     }
                     unset($this->children[$childId]);
                 } catch (\Throwable) {
@@ -542,7 +554,9 @@ final class WorkerProcessGuardianRuntime
     {
         $childId = $payload['child_id'] ?? null;
         if (!\is_string($childId) || !isset($this->children[$childId])) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_CHILD_INVALID);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_CHILD_INVALID,
+            );
         }
         return $childId;
     }
@@ -571,7 +585,9 @@ final class WorkerProcessGuardianRuntime
                 $this->signalInterrupted = false;
                 return null;
             }
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+            );
         }
 
         if ($selected === 0) {
@@ -580,12 +596,16 @@ final class WorkerProcessGuardianRuntime
 
         $remaining = WorkerProcessGuardianProtocol::MAX_FRAME_BYTES + 1 - \strlen($buffer);
         if ($remaining < 1) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+            );
         }
 
         $chunk = @\fread($connection, $remaining);
         if ($chunk === false) {
-            throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+            throw new WorkerProcessGuardianFailure(
+                WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+            );
         }
         if ($chunk === '') {
             return null;
@@ -614,7 +634,9 @@ final class WorkerProcessGuardianRuntime
 
         while ($remaining !== '') {
             if (\hrtime(true) >= $deadlineNs) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+                );
             }
 
             $read = null;
@@ -628,7 +650,9 @@ final class WorkerProcessGuardianRuntime
                     $this->signalInterrupted = false;
                     continue;
                 }
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+                );
             }
             if ($selected !== 1) {
                 continue;
@@ -636,7 +660,9 @@ final class WorkerProcessGuardianRuntime
 
             $written = @\fwrite($connection, $remaining);
             if (!\is_int($written) || $written < 1) {
-                throw new WorkerProcessGuardianFailure(WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED);
+                throw new WorkerProcessGuardianFailure(
+                    WorkerProcessGuardianProtocol::ERROR_OPERATION_FAILED,
+                );
             }
             $remaining = \substr($remaining, $written);
         }

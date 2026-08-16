@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Process\Proc;
 
 use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
+use Coretsia\Platform\Worker\Internal\WorkerLoopbackListener;
 
 /**
  * Owns one guardian-side proc-host connection handoff endpoint.
@@ -56,12 +57,7 @@ final class WorkerProcProcessHostHandoffEndpoint
 
     public static function create(): self
     {
-        $listener = @\stream_socket_server(
-            'tcp://127.0.0.1:0',
-            $errorCode,
-            $errorMessage,
-            \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN,
-        );
+        $listener = WorkerLoopbackListener::create();
 
         if (!\is_resource($listener)) {
             throw WorkerLifecycleFailedException::processHostFailed();

@@ -74,6 +74,62 @@ final class WorkerPoolSpecTest extends TestCase
         );
     }
 
+    public function testMissingTaskTypeRemainsWorkerOwnedInvalidState(): void
+    {
+        $config = require \dirname(__DIR__, 2) . '/config/worker.php';
+
+        self::assertIsArray($config);
+
+        unset($config['task_type']);
+
+        try {
+            WorkerPoolSpec::fromConfig(
+                config: $config,
+                pcntlDriverAvailable: true,
+                platformFamily: 'Linux',
+                unixDomainSocketsSupported: true,
+                procDriverAvailable: true,
+            );
+        } catch (WorkerLifecycleFailedException $exception) {
+            self::assertSame(
+                WorkerLifecycleFailedException::REASON_INVALID_STATE,
+                $exception->reason(),
+            );
+
+            return;
+        }
+
+        self::fail('Missing worker.task_type must fail.');
+    }
+
+    public function testInvalidTaskTypeRemainsWorkerOwnedInvalidState(): void
+    {
+        $config = require \dirname(__DIR__, 2) . '/config/worker.php';
+
+        self::assertIsArray($config);
+
+        $config['task_type'] = 'invalid-task-type';
+
+        try {
+            WorkerPoolSpec::fromConfig(
+                config: $config,
+                pcntlDriverAvailable: true,
+                platformFamily: 'Linux',
+                unixDomainSocketsSupported: true,
+                procDriverAvailable: true,
+            );
+        } catch (WorkerLifecycleFailedException $exception) {
+            self::assertSame(
+                WorkerLifecycleFailedException::REASON_INVALID_STATE,
+                $exception->reason(),
+            );
+
+            return;
+        }
+
+        self::fail('Invalid worker.task_type must fail.');
+    }
+
     public function testExposesAllLifecycleFieldsAndRedactedEndpointIdentity(): void
     {
         $spec = WorkerSpecFactory::create([

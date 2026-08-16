@@ -51,4 +51,78 @@ final class CoretsiaWorkerChildLauncherContractTest extends PackageTestCase
             self::assertStringNotContainsString($forbidden, $source);
         }
     }
+
+    public function testLauncherUsesWorkerOwnedEntrypointGuardBeforeApplicationWorkerResolution(): void
+    {
+        $source = self::source('bin/coretsia-worker');
+
+        self::assertStringContainsString(
+            'WorkerRuntimeEntrypointGuard::class',
+            $source,
+        );
+        self::assertStringNotContainsString(
+            'Runtime\\Entrypoint\\RuntimeEntrypointGuard',
+            $source,
+        );
+        self::assertStringNotContainsString(
+            'platform.http',
+            $source,
+        );
+
+        $guardPosition = \strpos(
+            $source,
+            "coretsia_worker_child_assert_runtime_entrypoint_allowed(\n        container: \$container,",
+        );
+        $applicationWorkerPosition = \strpos(
+            $source,
+            'coretsia_worker_child_service($container, ApplicationWorker::class)',
+        );
+
+        self::assertIsInt($guardPosition);
+        self::assertIsInt($applicationWorkerPosition);
+        self::assertLessThan(
+            $applicationWorkerPosition,
+            $guardPosition,
+            'Worker-owned entrypoint guard must run before ApplicationWorker resolution.',
+        );
+    }
+
+    public function testLauncherKeepsKernelMatrixAndWorkerEntrypointFailureReasonsDistinct(): void
+    {
+        $source = self::source('bin/coretsia-worker');
+
+        foreach (
+            [
+                'RuntimeDriverConflictException|RuntimeDriverInvalidConfigException',
+                "coretsia_worker_child_throw('runtime-driver-incompatible')",
+                'catch (WorkerStartFailedException $exception)',
+                'WorkerStartFailedException::REASON_MODULE_NOT_ENABLED',
+                "coretsia_worker_child_throw('runtime-entrypoint-incompatible')",
+            ] as $required
+        ) {
+            self::assertStringContainsString($required, $source);
+        }
+
+        self::assertNotSame(
+            'runtime-driver-incompatible',
+            'runtime-entrypoint-incompatible',
+        );
+
+        $matrixCatch = \strpos(
+            $source,
+            'catch (RuntimeDriverConflictException|RuntimeDriverInvalidConfigException)',
+        );
+        $workerCatch = \strpos(
+            $source,
+            'catch (WorkerStartFailedException $exception)',
+        );
+
+        self::assertIsInt($matrixCatch);
+        self::assertIsInt($workerCatch);
+        self::assertLessThan(
+            $workerCatch,
+            $matrixCatch,
+            'Kernel matrix failures must be mapped before Worker-owned entrypoint failures.',
+        );
+    }
 }

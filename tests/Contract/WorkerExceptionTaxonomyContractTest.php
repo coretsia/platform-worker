@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Contract;
 
+use Coretsia\Kernel\Runtime\Exception\RuntimeDriverInvalidConfigException;
 use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Tests\Support\PackageTestCase;
@@ -28,6 +29,7 @@ final class WorkerExceptionTaxonomyContractTest extends PackageTestCase
     {
         $startupReasons = [
             WorkerStartFailedException::startFailed()->reason(),
+            WorkerStartFailedException::moduleNotEnabled()->reason(),
             WorkerStartFailedException::taskSourceMissing()->reason(),
             WorkerStartFailedException::taskSourceAmbiguous()->reason(),
             WorkerStartFailedException::taskSourceInvalid()->reason(),
@@ -65,6 +67,32 @@ final class WorkerExceptionTaxonomyContractTest extends PackageTestCase
         self::assertSame(
             \count($lifecycleReasons),
             \count(\array_unique($lifecycleReasons)),
+        );
+    }
+
+    public function testModuleNotEnabledIsWorkerStartupTaxonomy(): void
+    {
+        $exception = WorkerStartFailedException::moduleNotEnabled();
+
+        self::assertSame(
+            WorkerStartFailedException::ERROR_CODE,
+            $exception->errorCode(),
+        );
+        self::assertSame(
+            WorkerStartFailedException::REASON_MODULE_NOT_ENABLED,
+            $exception->reason(),
+        );
+        self::assertSame(
+            'worker-module-not-enabled',
+            $exception->reason(),
+        );
+
+        self::assertFalse(
+            \method_exists(
+                RuntimeDriverInvalidConfigException::class,
+                'moduleNotEnabled',
+            ),
+            'Worker module participation must not be represented by Kernel invalid-config taxonomy.',
         );
     }
 

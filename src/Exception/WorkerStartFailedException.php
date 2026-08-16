@@ -21,9 +21,12 @@ namespace Coretsia\Platform\Worker\Exception;
 /**
  * Deterministic worker startup failure.
  *
- * This exception covers startup validation, task-source resolution/readiness,
- * child-process creation, readiness, and signal-bootstrap failures owned by
- * the worker package after runtime-driver compatibility has already passed.
+ * WorkerStartFailedException represents Worker-owned startup failures,
+ * including Worker startup preconditions validated before Kernel
+ * runtime-driver matrix resolution.
+ *
+ * It also covers task-source resolution/readiness, child-process creation,
+ * readiness, and signal-bootstrap failures owned by the Worker package.
  *
  * The public message contains only:
  *
@@ -39,6 +42,7 @@ final class WorkerStartFailedException extends WorkerException
     public const string ERROR_CODE = 'CORETSIA_WORKER_START_FAILED';
 
     public const string REASON_START_FAILED = 'worker-start-failed';
+    public const string REASON_MODULE_NOT_ENABLED = 'worker-module-not-enabled';
     public const string REASON_TASK_SOURCE_MISSING = 'worker-task-source-missing';
     public const string REASON_TASK_SOURCE_AMBIGUOUS = 'worker-task-source-ambiguous';
     public const string REASON_TASK_SOURCE_INVALID = 'worker-task-source-invalid';
@@ -51,6 +55,7 @@ final class WorkerStartFailedException extends WorkerException
 
     private const array REASONS = [
         self::REASON_START_FAILED => true,
+        self::REASON_MODULE_NOT_ENABLED => true,
         self::REASON_TASK_SOURCE_MISSING => true,
         self::REASON_TASK_SOURCE_AMBIGUOUS => true,
         self::REASON_TASK_SOURCE_INVALID => true,
@@ -74,6 +79,11 @@ final class WorkerStartFailedException extends WorkerException
     public static function startFailed(): self
     {
         return new self(self::REASON_START_FAILED);
+    }
+
+    public static function moduleNotEnabled(): self
+    {
+        return new self(self::REASON_MODULE_NOT_ENABLED);
     }
 
     public static function taskSourceMissing(): self

@@ -18,14 +18,13 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Integration;
 
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Platform\Worker\Communication\WorkerChildReadinessChannel;
 use Coretsia\Platform\Worker\Internal\WorkerProcessCapabilities;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\Driver\ProcWorkerProcessDriver;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianClient;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianProtocol;
-use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianTransport;
 use Coretsia\Platform\Worker\Process\WorkerChildCommandBuilder;
 use Coretsia\Platform\Worker\Tests\Support\PackageTestCase;
 use Coretsia\Platform\Worker\Tests\Support\WorkerSpecFactory;
@@ -34,13 +33,10 @@ final class ProcWorkerProcessDriverTest extends PackageTestCase
 {
     public function testProcessHostAdapterSpawnsReadyChildWithoutSupervisorResourceInheritance(): void
     {
-        if (!WorkerProcessCapabilities::procDriverAvailable()) {
-            self::assertFalse(
-                WorkerProcessCapabilities::procDriverAvailable(),
-            );
-
-            return;
-        }
+        self::assertTrue(
+            WorkerProcessCapabilities::procDriverAvailable(),
+            'PROC guardian backend must be available in the integration-test environment.',
+        );
 
         $root = $this->temporaryDirectory('proc-driver');
         $hostRoot = \is_file(self::frameworkRoot() . '/vendor/autoload.php')
@@ -50,8 +46,10 @@ final class ProcWorkerProcessDriverTest extends PackageTestCase
             command: [\PHP_BINARY, self::packageRoot() . '/bin/coretsia-worker-guardian'],
             bootstrapWorkingDirectory: $hostRoot,
             skeletonRoot: $root,
-            protocol: new WorkerProcessGuardianProtocol(new StableJsonEncoder(), new StableJsonDecoder()),
-            transport: new WorkerProcessGuardianTransport(),
+            protocol: new WorkerProcessGuardianProtocol(),
+            bootstrapLauncher: new WorkerProcessBootstrapLauncher(
+                new WorkerProcessBootstrapProtocol(),
+            ),
         );
         $readiness = new WorkerChildReadinessChannel();
         $driver = new ProcWorkerProcessDriver(

@@ -18,12 +18,10 @@ declare(strict_types=1);
 
 use Coretsia\Contracts\Cli\Output\OutputInterface;
 use Coretsia\Contracts\Module\ModuleId;
-use Coretsia\Foundation\Serialization\StableJsonDecoder;
-use Coretsia\Foundation\Serialization\StableJsonEncoder;
 use Coretsia\Foundation\Time\Stopwatch;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
 use Coretsia\Platform\Worker\Communication\WorkerChildReadinessChannel;
 use Coretsia\Platform\Worker\Communication\WorkerControlClient;
 use Coretsia\Platform\Worker\Communication\WorkerControlProtocol;
@@ -39,11 +37,12 @@ use Coretsia\Platform\Worker\Internal\WorkerProcessDriverInterface;
 use Coretsia\Platform\Worker\Internal\WorkerProcessDriverResolverInterface;
 use Coretsia\Platform\Worker\Internal\WorkerSupervisorInterface;
 use Coretsia\Platform\Worker\Internal\WorkerSupervisorResolverInterface;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\Driver\PcntlWorkerProcessDriver;
 use Coretsia\Platform\Worker\Process\Driver\ProcWorkerProcessDriver;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianClient;
 use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianProtocol;
-use Coretsia\Platform\Worker\Process\Guardian\WorkerProcessGuardianTransport;
 use Coretsia\Platform\Worker\Process\WorkerChildCommandBuilder;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerLifecycleLocatorStore;
@@ -143,15 +142,11 @@ $behavior = coretsia_worker_test_decode_file($behaviorPath);
 
 $repository = new ArrayConfigRepository($config);
 $factory = new WorkerServiceFactory();
-$encoder = new StableJsonEncoder();
-$decoder = new StableJsonDecoder();
 $transport = new WorkerControlTransport($skeletonRoot);
-$protocol = new WorkerControlProtocol($encoder, $decoder);
+$protocol = new WorkerControlProtocol();
 $lock = new WorkerLifecycleLock($skeletonRoot);
 $locatorStore = new WorkerLifecycleLocatorStore(
     skeletonRoot: $skeletonRoot,
-    encoder: $encoder,
-    decoder: $decoder,
 );
 $logger = new RecordingLogger();
 $meter = new RecordingMeter();
@@ -167,8 +162,6 @@ if ($operation === 'start') {
     $stopSignal = new WorkerStopSignal($skeletonRoot);
     $stateStore = new WorkerStateStore(
         skeletonRoot: $skeletonRoot,
-        encoder: $encoder,
-        decoder: $decoder,
     );
 
     $specForDriver = $factory->workerPoolSpec($repository);
@@ -181,8 +174,10 @@ if ($operation === 'start') {
         ],
         bootstrapWorkingDirectory: $frameworkRoot,
         skeletonRoot: $skeletonRoot,
-        protocol: new WorkerProcessGuardianProtocol($encoder, $decoder),
-        transport: new WorkerProcessGuardianTransport(),
+        protocol: new WorkerProcessGuardianProtocol(),
+        bootstrapLauncher: new WorkerProcessBootstrapLauncher(
+            new WorkerProcessBootstrapProtocol(),
+        ),
     );
 
     $childCommand = [
@@ -260,7 +255,7 @@ if ($operation === 'start') {
         config: $repository,
         modulePlan: coretsia_worker_test_module_plan(),
         runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
-            new RuntimeEntrypointGuard(),
+            new RuntimeDriverResolver(),
         ),
         factory: $factory,
         supervisorResolver: $resolver,

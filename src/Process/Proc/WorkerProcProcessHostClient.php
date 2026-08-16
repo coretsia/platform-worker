@@ -20,6 +20,8 @@ namespace Coretsia\Platform\Worker\Process\Proc;
 
 use Coretsia\Platform\Worker\Exception\WorkerLifecycleFailedException;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapLauncher;
+use Coretsia\Platform\Worker\Process\Bootstrap\WorkerProcessBootstrapProtocol;
 use Coretsia\Platform\Worker\Process\WorkerProcessExit;
 
 /**
@@ -44,7 +46,7 @@ use Coretsia\Platform\Worker\Process\WorkerProcessExit;
  */
 final class WorkerProcProcessHostClient
 {
-    private const int CONNECT_RETRY_US = 1_000;
+    private const int WAIT_TICK_US = 1_000;
     private const int HOST_FALLBACK_SHUTDOWN_MS = 5_000;
     private const int MAX_TIMEOUT_MS = 86_400_000;
     private const int MAX_REQUEST_ID = 2_147_483_647;
@@ -54,6 +56,7 @@ final class WorkerProcProcessHostClient
 
     private mixed $process = null;
     private mixed $connection = null;
+    private ?int $hostPid = null;
     private int $nextRequestId = 1;
     private int $requestTimeoutMs = 1_000;
 
@@ -67,6 +70,7 @@ final class WorkerProcProcessHostClient
         array $command,
         private readonly string $workingDirectory,
         private readonly WorkerProcProcessHostProtocol $protocol,
+        private readonly WorkerProcessBootstrapLauncher $bootstrapLauncher,
     ) {
         if (
             $command === []
@@ -89,94 +93,25 @@ final class WorkerProcProcessHostClient
     {
         self::assertTimeout($timeoutMs);
 
-        if ($this->started()) {
+        if (\is_resource($this->process) || \is_resource($this->connection)) {
             throw WorkerLifecycleFailedException::processHostFailed();
         }
 
-        $deadlineNs = self::deadlineNs($timeoutMs);
-        $port = self::reserveLoopbackPort();
-
         try {
-            $token = \bin2hex(\random_bytes(32));
+            $session = $this->bootstrapLauncher->launchAuthenticatedChild(
+                command: $this->command,
+                workingDirectory: $this->workingDirectory,
+                role: WorkerProcessBootstrapProtocol::ROLE_PROC_HOST,
+                timeoutMs: $timeoutMs,
+            );
         } catch (\Throwable) {
             throw WorkerLifecycleFailedException::processHostFailed();
         }
 
-        $command = [
-            ...$this->command,
-            '--coretsia-proc-host-port=' . $port,
-            '--coretsia-proc-host-token=' . $token,
-        ];
-
-        $null = \PHP_OS_FAMILY === 'Windows'
-            ? 'NUL'
-            : '/dev/null';
-
-        $descriptors = [
-            0 => ['file', $null, 'r'],
-            1 => ['file', $null, 'w'],
-            2 => ['file', $null, 'w'],
-        ];
-
-        /** @var array{bypass_shell: true, create_process_group?: true} $options */
-        $options = [
-            'bypass_shell' => true,
-        ];
-
-        if (\PHP_OS_FAMILY === 'Windows') {
-            $options['create_process_group'] = true;
-        }
-
-        $pipes = [];
-        $process = @\proc_open(
-            command: $command,
-            descriptor_spec: $descriptors,
-            pipes: $pipes,
-            cwd: $this->workingDirectory,
-            env_vars: null,
-            options: $options,
-        );
-
-        if (!\is_resource($process)) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        $this->process = $process;
+        $this->process = $session['process'];
+        $this->hostPid = $session['pid'];
+        $this->connection = $session['connection'];
         $this->requestTimeoutMs = \min($timeoutMs, 1_000);
-
-        try {
-            $this->connection = $this->connect(
-                port: $port,
-                deadlineNs: $deadlineNs,
-            );
-
-            $response = $this->request(
-                operation: WorkerProcProcessHostProtocol::OPERATION_HELLO,
-                payload: ['token' => $token],
-                timeoutMs: self::remainingMs($deadlineNs),
-            );
-
-            if (
-                \array_keys($response) !== ['ready']
-                || $response['ready'] !== true
-            ) {
-                throw WorkerLifecycleFailedException::processHostFailed();
-            }
-        } catch (\Throwable $exception) {
-            /*
-             * Host startup failed before any worker child could be registered.
-             * There is no child cleanup phase to wait for.
-             */
-            $this->forceCloseHost(
-                allowCleanup: false,
-            );
-
-            if ($exception instanceof WorkerLifecycleFailedException) {
-                throw $exception;
-            }
-
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
     }
 
     /**
@@ -266,12 +201,17 @@ final class WorkerProcProcessHostClient
         } catch (\Throwable $exception) {
             /*
              * A failed or invalid handoff leaves no trustworthy child identity.
-             * Closing or terminating the host triggers its bounded all-child
-             * cleanup path.
+             * Close the owner channel and let ProcHost perform terminal cleanup.
+             * Do not hard-kill here because Guardian may already own worker.lock.
              */
-            $this->forceCloseHost(
-                allowCleanup: true,
-            );
+            try {
+                $this->closeOwnerChannelAndAwaitHostExit(
+                    timeoutMs: self::HOST_FALLBACK_SHUTDOWN_MS,
+                    allowForcedTermination: false,
+                );
+            } catch (\Throwable) {
+                /* Preserve the live process handle for Guardian-owned fail-closed cleanup. */
+            }
 
             if ($exception instanceof WorkerLifecycleFailedException) {
                 throw $exception;
@@ -364,51 +304,56 @@ final class WorkerProcProcessHostClient
         unset($this->children[$childId]);
     }
 
-    public function shutdown(int $timeoutMs): void
-    {
+    public function shutdown(
+        int $timeoutMs,
+        bool $allowForcedTermination = false,
+    ): void {
         self::assertTimeout($timeoutMs);
 
-        if (!$this->started()) {
+        if (!\is_resource($this->process)) {
             $this->reset();
-
             return;
         }
 
         $deadlineNs = self::deadlineNs($timeoutMs);
 
         try {
-            $response = $this->request(
-                operation: WorkerProcProcessHostProtocol::OPERATION_SHUTDOWN,
-                payload: [],
-                timeoutMs: $this->boundedRequestTimeoutMs(
-                    self::remainingMs($deadlineNs),
-                ),
-            );
+            if (\is_resource($this->connection)) {
+                $response = $this->request(
+                    operation: WorkerProcProcessHostProtocol::OPERATION_SHUTDOWN,
+                    payload: [],
+                    timeoutMs: $this->boundedRequestTimeoutMs(
+                        self::remainingMs($deadlineNs),
+                    ),
+                );
 
-            if (
-                \array_keys($response) !== ['acknowledged']
-                || $response['acknowledged'] !== true
-            ) {
-                throw WorkerLifecycleFailedException::processHostFailed();
+                if (
+                    \array_keys($response) !== ['acknowledged']
+                    || $response['acknowledged'] !== true
+                ) {
+                    throw WorkerLifecycleFailedException::processHostFailed();
+                }
+
+                $this->closeConnection();
             }
 
-            $this->children = [];
-            $this->closeConnection();
-
             $this->waitForHostExit($deadlineNs);
-
             $this->closeProcessResource();
             $this->reset();
         } catch (\Throwable $exception) {
             /*
-             * Closing the protocol connection is the host's parent-death signal.
-             * Give the host enough time to terminate and reap remaining workers
-             * before resorting to a hard host kill.
+             * EOF is the ProcHost owner-loss signal. When Guardian already owns
+             * worker.lock, hard-killing ProcHost cannot prove that its workers
+             * were reaped, so the caller can require fail-closed containment.
              */
-            $this->forceCloseHost(
-                allowCleanup: true,
-                timeoutMs: self::remainingMsOrOne($deadlineNs),
-            );
+            try {
+                $this->closeOwnerChannelAndAwaitHostExit(
+                    timeoutMs: self::remainingMsOrOne($deadlineNs),
+                    allowForcedTermination: $allowForcedTermination,
+                );
+            } catch (\Throwable) {
+                throw WorkerLifecycleFailedException::processHostFailed();
+            }
 
             if ($exception instanceof WorkerLifecycleFailedException) {
                 throw $exception;
@@ -636,43 +581,6 @@ final class WorkerProcProcessHostClient
         }
     }
 
-    private function connect(int $port, int $deadlineNs): mixed
-    {
-        do {
-            if (!$this->hostRunning()) {
-                throw WorkerLifecycleFailedException::processHostFailed();
-            }
-
-            $remainingMs = self::remainingMs($deadlineNs);
-            $timeoutSeconds = \max(
-                0.001,
-                \min(0.05, $remainingMs / 1_000),
-            );
-
-            $connection = @\stream_socket_client(
-                'tcp://127.0.0.1:' . $port,
-                $errorCode,
-                $errorMessage,
-                $timeoutSeconds,
-                \STREAM_CLIENT_CONNECT,
-            );
-
-            if (\is_resource($connection)) {
-                if (!@\stream_set_blocking($connection, false)) {
-                    @\fclose($connection);
-
-                    throw WorkerLifecycleFailedException::processHostFailed();
-                }
-
-                return $connection;
-            }
-
-            \usleep(self::CONNECT_RETRY_US);
-        } while (\hrtime(true) < $deadlineNs);
-
-        throw WorkerLifecycleFailedException::processHostFailed();
-    }
-
     private function boundedRequestTimeoutMs(int $timeoutMs): int
     {
         self::assertTimeout($timeoutMs);
@@ -717,13 +625,14 @@ final class WorkerProcProcessHostClient
 
     private function hostRunning(): bool
     {
-        if (!\is_resource($this->process)) {
+        if (!\is_resource($this->process) || $this->hostPid === null) {
             return false;
         }
 
         $status = @\proc_get_status($this->process);
 
-        return $status['running'];
+        return $status['running'] === true
+            && $status['pid'] === $this->hostPid;
     }
 
     private function waitForHostExit(int $deadlineNs): void
@@ -733,40 +642,36 @@ final class WorkerProcProcessHostClient
                 throw WorkerLifecycleFailedException::processHostFailed();
             }
 
-            \usleep(self::CONNECT_RETRY_US);
+            \usleep(self::WAIT_TICK_US);
         }
     }
 
-    private function forceCloseHost(
-        bool $allowCleanup,
-        int $timeoutMs = self::HOST_FALLBACK_SHUTDOWN_MS,
+    private function closeOwnerChannelAndAwaitHostExit(
+        int $timeoutMs,
+        bool $allowForcedTermination,
     ): void {
         self::assertTimeout($timeoutMs);
-        /*
-         * EOF on an active authenticated connection tells the host that its
-         * guardian disappeared. During handoff there may be no active
-         * connection, but the host still owns bounded cleanup before exit.
-         */
         $this->closeConnection();
 
-        if (\is_resource($this->process)) {
-            if ($allowCleanup) {
-                $deadlineNs = self::deadlineNs($timeoutMs);
-
-                while (
-                    $this->hostRunning() && \hrtime(true) < $deadlineNs
-                ) {
-                    \usleep(self::CONNECT_RETRY_US);
-                }
-            }
-
-            if ($this->hostRunning()) {
-                @\proc_terminate($this->process, 9);
-            }
-
-            @\proc_close($this->process);
+        if (!\is_resource($this->process)) {
+            $this->reset();
+            return;
         }
 
+        $deadlineNs = self::deadlineNs($timeoutMs);
+        while ($this->hostRunning() && \hrtime(true) < $deadlineNs) {
+            \usleep(self::WAIT_TICK_US);
+        }
+
+        if ($this->hostRunning()) {
+            if (!$allowForcedTermination) {
+                throw WorkerLifecycleFailedException::processHostFailed();
+            }
+
+            @\proc_terminate($this->process, 9);
+        }
+
+        @\proc_close($this->process);
         $this->reset();
     }
 
@@ -795,44 +700,7 @@ final class WorkerProcProcessHostClient
         $this->children = [];
         $this->nextRequestId = 1;
         $this->requestTimeoutMs = 1_000;
-    }
-
-    private static function reserveLoopbackPort(): int
-    {
-        $server = @\stream_socket_server(
-            'tcp://127.0.0.1:0',
-            $errorCode,
-            $errorMessage,
-            \STREAM_SERVER_BIND | \STREAM_SERVER_LISTEN,
-        );
-
-        if (!\is_resource($server)) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        $name = @\stream_socket_get_name($server, false);
-        @\fclose($server);
-
-        if (!\is_string($name)) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        $separator = \strrpos($name, ':');
-        $value = $separator === false
-            ? ''
-            : \substr($name, $separator + 1);
-
-        if (!\ctype_digit($value)) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        $port = (int)$value;
-
-        if ($port < 1 || $port > 65_535) {
-            throw WorkerLifecycleFailedException::processHostFailed();
-        }
-
-        return $port;
+        $this->hostPid = null;
     }
 
     private static function deadlineNs(int $timeoutMs): int

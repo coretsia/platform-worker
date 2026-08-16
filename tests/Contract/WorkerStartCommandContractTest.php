@@ -21,7 +21,7 @@ namespace Coretsia\Platform\Worker\Tests\Contract;
 use Coretsia\Contracts\Module\ModuleId;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
-use Coretsia\Kernel\Runtime\Entrypoint\RuntimeEntrypointGuard;
+use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
 use Coretsia\Platform\Worker\Console\WorkerStartCommand;
 use Coretsia\Platform\Worker\Internal\WorkerSupervisorInterface;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
@@ -66,7 +66,7 @@ final class WorkerStartCommandContractTest extends TestCase
             config: self::config(),
             modulePlan: self::plan(true),
             runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
-                new RuntimeEntrypointGuard(),
+                new RuntimeDriverResolver(),
             ),
             factory: new WorkerServiceFactory(),
             supervisorResolver: $resolver,
@@ -85,7 +85,7 @@ final class WorkerStartCommandContractTest extends TestCase
         self::assertSame(1, $output->json[0]['ready_worker_count']);
     }
 
-    public function testGuardFailureHappensBeforeLazySupervisorResolution(): void
+    public function testMissingWorkerModuleFailsBeforeLazySupervisorResolution(): void
     {
         $supervisor = new class() implements WorkerSupervisorInterface {
             public function run(
@@ -101,7 +101,7 @@ final class WorkerStartCommandContractTest extends TestCase
             config: self::config(),
             modulePlan: self::plan(false),
             runtimeEntrypointGuard: new WorkerRuntimeEntrypointGuard(
-                new RuntimeEntrypointGuard(),
+                new RuntimeDriverResolver(),
             ),
             factory: new WorkerServiceFactory(),
             supervisorResolver: $resolver,
@@ -116,8 +116,12 @@ final class WorkerStartCommandContractTest extends TestCase
         );
         self::assertSame(0, $resolver->calls);
         self::assertSame(
-            'CORETSIA_RUNTIME_DRIVER_MATRIX_INVALID_CONFIG',
+            'CORETSIA_WORKER_START_FAILED',
             $output->errors[0]['code'],
+        );
+        self::assertSame(
+            'worker-module-not-enabled',
+            $output->errors[0]['message'],
         );
     }
 
