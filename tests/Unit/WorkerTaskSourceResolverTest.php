@@ -94,6 +94,62 @@ final class WorkerTaskSourceResolverTest extends TestCase
         );
     }
 
+    public function testAmbiguousTaskSourceDiagnosticProjectionDoesNotDependOnTagInsertionOrder(): void
+    {
+        $projections = [];
+
+        foreach (
+            [
+                [
+                    'worker.source.one',
+                    'worker.source.two',
+                    'worker.source.three',
+                ],
+                [
+                    'worker.source.three',
+                    'worker.source.one',
+                    'worker.source.two',
+                ],
+                [
+                    'worker.source.two',
+                    'worker.source.three',
+                    'worker.source.one',
+                ],
+            ] as $ids
+        ) {
+            $tags = new TagRegistry();
+
+            foreach ($ids as $id) {
+                $tags->add(
+                    ReservedTags::WORKER_TASK_SOURCE,
+                    $id,
+                    meta: ['task_type' => 'queue'],
+                );
+            }
+
+            $exception = self::captureStartFailure(
+                static fn (): WorkerTaskSourceInterface => new WorkerTaskSourceResolver(
+                    new RecordingWorkerTaskSourceContainer([]),
+                    $tags,
+                )->resolve(WorkerTaskType::Queue),
+            );
+
+            $projections[] = [
+                'errorCode' => $exception->errorCode(),
+                'message' => $exception->getMessage(),
+                'reason' => $exception->reason(),
+            ];
+        }
+
+        self::assertSame($projections[0], $projections[1]);
+        self::assertSame($projections[0], $projections[2]);
+
+        self::assertSame(
+            WorkerStartFailedException::REASON_TASK_SOURCE_AMBIGUOUS,
+            $projections[0]['reason'],
+        );
+    }
+
     public function testRejectsInvalidMetadataAndUnknownTaskType(): void
     {
         foreach (
@@ -185,11 +241,20 @@ final class WorkerTaskSourceResolverTest extends TestCase
 
     private static function assertStartReason(string $reason, callable $operation): void
     {
+        self::assertSame(
+            $reason,
+            self::captureStartFailure($operation)->reason(),
+        );
+    }
+
+    private static function captureStartFailure(
+        callable $operation,
+    ): WorkerStartFailedException {
         try {
             $operation();
             self::fail('Expected worker start failure.');
         } catch (WorkerStartFailedException $exception) {
-            self::assertSame($reason, $exception->reason());
+            return $exception;
         }
     }
 }

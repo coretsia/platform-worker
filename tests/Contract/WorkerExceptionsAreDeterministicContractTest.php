@@ -66,4 +66,14 @@ final class WorkerExceptionsAreDeterministicContractTest extends TestCase
             );
         }
     }
+
+    public function testTaskSourceAmbiguityContractRemainsStable(): void
+    {
+        $first = WorkerStartFailedException::taskSourceAmbiguous();
+        $second = WorkerStartFailedException::taskSourceAmbiguous();
+
+        self::assertSame($first->errorCode(), $second->errorCode());
+        self::assertSame($first->reason(), $second->reason());
+        self::assertSame($first->getMessage(), $second->getMessage());
+    }
 }

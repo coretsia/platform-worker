@@ -60,6 +60,36 @@ final class WorkerChildTableTest extends TestCase
         self::assertSame(1, $table->count());
     }
 
+    public function testTableOrderDoesNotDependOnChildInsertionPermutation(): void
+    {
+        foreach (
+            [
+                [2, 0, 1],
+                [1, 2, 0],
+                [0, 1, 2],
+            ] as $order
+        ) {
+            $table = new WorkerChildTable();
+
+            foreach ($order as $slot) {
+                $table->add(
+                    self::child(
+                        slot: $slot,
+                        pid: 2001 + $slot,
+                    ),
+                );
+            }
+
+            self::assertSame(
+                [0, 1, 2],
+                \array_map(
+                    static fn (WorkerChildProcess $child): int => $child->workerIndex(),
+                    $table->all(),
+                ),
+            );
+        }
+    }
+
     public function testDuplicateAndMissingSlotsAreRejected(): void
     {
         $table = new WorkerChildTable();

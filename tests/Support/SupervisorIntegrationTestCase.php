@@ -98,6 +98,13 @@ abstract class SupervisorIntegrationTestCase extends PackageTestCase
                 'control' => ['transport' => 'unix'],
             ];
 
+        $effectiveDriver = $workerOverride['driver']
+            ?? (
+                \PHP_OS_FAMILY === 'Windows'
+                ? 'proc'
+                : 'pcntl'
+            );
+
         $platformTimeouts = \PHP_OS_FAMILY === 'Windows'
             ? [
                 /*
@@ -110,7 +117,14 @@ abstract class SupervisorIntegrationTestCase extends PackageTestCase
                 'force_kill_timeout_ms' => 2_000,
             ]
             : [
-                'start_timeout_ms' => 2_000,
+                /*
+                 * PCNTL startup is intentionally kept tight. Proc startup also owns
+                 * process-host and child PHP initialization, which can be materially
+                 * slower under scheduler or filesystem contention (notably WSL).
+                 */
+                'start_timeout_ms' => $effectiveDriver === 'proc'
+                    ? 10_000
+                    : 2_000,
                 'stop_timeout_ms' => 500,
                 'force_kill_timeout_ms' => 250,
             ];
