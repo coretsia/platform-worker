@@ -1,0 +1,76 @@
+{
+  "name": "coretsia/platform-worker",
+  "type": "library",
+  "description": "Coretsia long-running worker runtime package: worker pool orchestration, application workers, and deterministic runtime safety.",
+  "keywords": [
+    "coretsia",
+    "php",
+    "framework",
+    "worker",
+    "runtime",
+    "long-running",
+    "processes",
+    "queue",
+    "http",
+    "deterministic",
+    "reset"
+  ],
+  "license": "Apache-2.0",
+  "authors": [
+    {
+      "name": "Vladyslav Mudrichenko",
+      "email": "vladyslav@coretsia.dev",
+      "role": "Creator and Lead Developer"
+    }
+  ],
+  "homepage": "https://coretsia.dev/",
+  "support": {
+    "issues": "https://github.com/coretsia/monorepo/issues",
+    "source": "https://github.com/coretsia/monorepo"
+  },
+  "require": {
+    "php": "^8.4",
+    "ext-ctype": "*",
+    "coretsia/core-contracts": "^0.7.0",
+    "coretsia/core-foundation": "^0.7.0",
+    "coretsia/core-kernel": "^0.7.0",
+    "psr/container": "^2.0",
+    "psr/log": "^3.0"
+  },
+  "suggest": {
+    "ext-pcntl": "Required for graceful SIGTERM/SIGINT handling by Unix-like worker supervisors and enables the optional pcntl process driver.",
+    "ext-posix": "Enables POSIX signal handling for the optional pcntl worker process driver on supported Unix-like platforms.",
+    "ext-sockets": "Required on Windows for exclusive ownership of Worker retained loopback listeners through SO_EXCLUSIVEADDRUSE."
+  },
+  "autoload": {
+    "psr-4": {
+      "Coretsia\\Platform\\Worker\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Coretsia\\Platform\\Worker\\Tests\\": "tests/"
+    }
+  },
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.4.0"
+    }
+  },
+  "extra": {
+    "coretsia": {
+      "kind": "runtime",
+      "moduleId": "platform.worker",
+      "moduleClass": "Coretsia\\Platform\\Worker\\Module\\WorkerModule",
+      "providers": [
+        "Coretsia\\Platform\\Worker\\Provider\\WorkerServiceProvider"
+      ],
+      "requires": [
+        "core.kernel"
+      ],
+      "conflicts": [],
+      "defaultsConfigPath": "config/worker.php"
+    }
+  }
+}

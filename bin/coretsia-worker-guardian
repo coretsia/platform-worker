@@ -1,0 +1,54 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Coretsia Framework (Monorepo)
+ *
+ * Project: Coretsia Framework (Monorepo)
+ * Authors: Vladyslav Mudrichenko and contributors
+ * Copyright (c) 2026 Vladyslav Mudrichenko
+ *
+ * SPDX-FileCopyrightText: 2026 Vladyslav Mudrichenko
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * For contributors list, see git history.
+ * See LICENSE and NOTICE in the project root for full license information.
+ */
+
+\error_reporting(\E_ALL);
+\ini_set('display_errors', '0');
+
+try {
+    $cwd = \getcwd();
+    if (!\is_string($cwd) || $cwd === '') {
+        throw new \RuntimeException('worker-guardian-bootstrap-invalid');
+    }
+
+    $argv = $_SERVER['argv'] ?? [];
+    if (!\is_array($argv) || !\array_is_list($argv) || \count($argv) !== 1) {
+        throw new \RuntimeException('worker-guardian-bootstrap-invalid');
+    }
+
+    $autoload = $cwd . '/vendor/autoload.php';
+    if (!\is_file($autoload) || !\is_readable($autoload)) {
+        throw new \RuntimeException('worker-guardian-bootstrap-invalid');
+    }
+
+    require $autoload;
+
+    $entrypoint = require __DIR__ . '/../src/Process/Entrypoint/worker-guardian.php';
+    if (!\is_callable($entrypoint)) {
+        throw new \RuntimeException('worker-guardian-entrypoint-invalid');
+    }
+
+    exit(
+    $entrypoint(
+        workingDirectory: $cwd,
+        procHostExecutable: __DIR__ . '/coretsia-worker-proc-host',
+    )
+    );
+} catch (\Throwable) {
+    exit(1);
+}
