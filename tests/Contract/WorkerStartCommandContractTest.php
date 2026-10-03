@@ -55,7 +55,7 @@ final class WorkerStartCommandContractTest extends TestCase
                         controlTransportRequested: 'unix',
                         controlTransport: 'unix',
                         endpointHash: \str_repeat('a', 64),
-                    )
+                    ),
                 );
 
                 return 7;
@@ -150,10 +150,8 @@ final class WorkerStartCommandContractTest extends TestCase
 
         return new ModulePlan(
             app: 'worker',
-            preset: 'test',
             enabled: $ids,
-            disabled: [],
-            optionalMissing: [],
+            excluded: [],
             topologicalOrder: $ids,
             modules: \array_map(
                 static fn (ModuleId $id): ModulePlanEntry => new ModulePlanEntry(
@@ -164,7 +162,6 @@ final class WorkerStartCommandContractTest extends TestCase
                 ),
                 $ids,
             ),
-            warnings: [],
         );
     }
 }

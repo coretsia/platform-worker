@@ -157,10 +157,8 @@ final class WorkerRuntimeEntrypointGuardTest extends TestCase
 
         return new ModulePlan(
             app: 'worker',
-            preset: 'test',
             enabled: $ids,
-            disabled: [],
-            optionalMissing: [],
+            excluded: [],
             topologicalOrder: $ids,
             modules: \array_map(
                 static fn (ModuleId $id): ModulePlanEntry => new ModulePlanEntry(
@@ -171,7 +169,6 @@ final class WorkerRuntimeEntrypointGuardTest extends TestCase
                 ),
                 $ids,
             ),
-            warnings: [],
         );
     }
 }

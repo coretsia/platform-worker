@@ -90,7 +90,9 @@ final class CoretsiaWorkerHarnessOutput implements OutputInterface
         ]);
     }
 
-    /** @param array<string, mixed> $value */
+    /**
+     * @param array<string, mixed> $value
+     */
     private function write(array $value): void
     {
         \fwrite(
@@ -106,7 +108,6 @@ final class CoretsiaWorkerHarnessOutput implements OutputInterface
         \fflush(STDOUT);
     }
 }
-
 
 if ($argc !== 6) {
     exit(64);
@@ -145,9 +146,7 @@ $factory = new WorkerServiceFactory();
 $transport = new WorkerControlTransport($applicationRoot);
 $protocol = new WorkerControlProtocol();
 $lock = new WorkerLifecycleLock($applicationRoot);
-$locatorStore = new WorkerLifecycleLocatorStore(
-    applicationRoot: $applicationRoot,
-);
+$locatorStore = new WorkerLifecycleLocatorStore($applicationRoot);
 $logger = new RecordingLogger();
 $meter = new RecordingMeter();
 $tracer = new RecordingTracer();
@@ -160,9 +159,7 @@ if ($operation === 'start') {
     $children = new WorkerChildTable();
     $signals = new WorkerSignalController();
     $stopSignal = new WorkerStopSignal($applicationRoot);
-    $stateStore = new WorkerStateStore(
-        applicationRoot: $applicationRoot,
-    );
+    $stateStore = new WorkerStateStore($applicationRoot);
 
     $specForDriver = $factory->workerPoolSpec($repository);
     $driverName = $specForDriver->driver();
@@ -333,7 +330,7 @@ function coretsia_worker_test_exit(
     if (
         @\file_put_contents(
             $temporaryPath,
-            (string)$exitCode . "\n",
+            (string) $exitCode . "\n",
             \LOCK_EX,
         ) === false
         || !@\rename(
@@ -411,7 +408,9 @@ function coretsia_worker_test_register_test_autoloader(): void
     );
 }
 
-/** @return array<string, mixed> */
+/**
+ * @return array<string, mixed>
+ */
 function coretsia_worker_test_decode_file(string $path): array
 {
     $bytes = \file_get_contents($path);
@@ -440,10 +439,8 @@ function coretsia_worker_test_module_plan(): ModulePlan
 
     return new ModulePlan(
         app: 'worker',
-        preset: 'test',
         enabled: [$workerId],
-        disabled: [],
-        optionalMissing: [],
+        excluded: [],
         topologicalOrder: [$workerId],
         modules: [
             new ModulePlanEntry(
@@ -451,6 +448,5 @@ function coretsia_worker_test_module_plan(): ModulePlan
                 composerName: 'coretsia/platform-worker',
             ),
         ],
-        warnings: [],
     );
 }

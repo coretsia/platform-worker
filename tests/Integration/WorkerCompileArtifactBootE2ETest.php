@@ -128,8 +128,7 @@ final class WorkerCompileArtifactBootE2ETest extends PackageTestCase
                 'required' => [
                     'platform.worker',
                 ],
-                'optional' => [],
-                'disabled' => [],
+                'modules' => [],
                 'featureBundles' => [],
                 'metadata' => [],
             ],
@@ -219,22 +218,7 @@ final class WorkerCompileArtifactBootE2ETest extends PackageTestCase
             'worker',
             $moduleManifestPayload['app'] ?? null,
         );
-        self::assertSame(
-            'worker-artifact-e2e',
-            $moduleManifestPayload['preset'] ?? null,
-        );
-        self::assertSame(
-            [],
-            $moduleManifestPayload['disabled'] ?? null,
-        );
-        self::assertSame(
-            [],
-            $moduleManifestPayload['optionalMissing'] ?? null,
-        );
-        self::assertSame(
-            [],
-            $moduleManifestPayload['warnings'] ?? null,
-        );
+        self::assertSame([], $moduleManifestPayload['excluded'] ?? null);
         self::assertSame(
             [
                 'core.foundation' => [

@@ -85,8 +85,7 @@ final class WorkerArtifactTaskSourceMetadataE2ETest extends PackageTestCase
                 'required' => [
                     'integrations.worker-task-source-e2e',
                 ],
-                'optional' => [],
-                'disabled' => [],
+                'modules' => [],
                 'featureBundles' => [],
                 'metadata' => [],
             ],

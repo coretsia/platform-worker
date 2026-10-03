@@ -71,7 +71,11 @@ use Coretsia\Kernel\Module\ComposerManifestReader;
 use Coretsia\Kernel\Module\ModePresetLoaderFactory;
 use Coretsia\Kernel\Module\ModePresetSchemaValidator;
 use Coretsia\Kernel\Module\ModuleGraphResolver;
+use Coretsia\Kernel\Module\ModuleIdSetNormalizer;
 use Coretsia\Kernel\Module\ModulePlanResolver;
+use Coretsia\Kernel\Module\ModuleResolutionOrchestrator;
+use Coretsia\Kernel\Module\ModuleSelectionFactory;
+use Coretsia\Kernel\Module\Preset\PresetNamespaceResolver;
 use Coretsia\Kernel\Module\TopologicalSorter;
 use Psr\Log\NullLogger;
 
@@ -114,13 +118,17 @@ final class WorkerArtifactPipelineTestSupport
             schemaValidator: new ModePresetSchemaValidator(),
         );
 
-        $modulePlanResolver = new ModulePlanResolver(
+        $moduleResolutionOrchestrator = new ModuleResolutionOrchestrator(
             presetLoaderFactory: $modePresetLoaderFactory,
+            presetNamespaceResolver: new PresetNamespaceResolver(),
+            moduleSelectionFactory: new ModuleSelectionFactory(new ModuleIdSetNormalizer()),
             manifestReader: new ComposerManifestReader(
                 new ComposerInstalledMetadataProvider($installedData),
             ),
-            graphResolver: new ModuleGraphResolver(
-                new TopologicalSorter(),
+            modulePlanResolver: new ModulePlanResolver(
+                graphResolver: new ModuleGraphResolver(
+                    new TopologicalSorter(),
+                ),
             ),
             tracer: new NoopTracer(),
             meter: new NoopMeter(),
@@ -132,14 +140,16 @@ final class WorkerArtifactPipelineTestSupport
         return new KernelArtifactOperation(
             bootstrapConfigResolver: new BootstrapConfigResolver(
                 new BootstrapOverridesLoader(),
+                new ModuleIdSetNormalizer(),
             ),
             envRepositoryBuilder: new EnvRepositoryBuilder(
                 new DotenvLoader(),
             ),
-            modulePlanResolver: $modulePlanResolver,
+            moduleResolutionOrchestrator: $moduleResolutionOrchestrator,
             configSourceLocationBuilder: new ConfigSourceLocationBuilder(
                 installPathResolver: new ComposerPackageInstallPathResolver($installRoots),
                 modePresetLoaderFactory: $modePresetLoaderFactory,
+                presetNamespaceResolver: new PresetNamespaceResolver(),
             ),
             artifactCompiler: self::artifactCompiler($kernelConfig),
             cacheVerifier: self::cacheVerifier($kernelConfig),

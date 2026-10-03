@@ -246,10 +246,8 @@ final class WorkerCommandExceptionTaxonomyContractTest extends TestCase
 
         return new ModulePlan(
             app: 'worker',
-            preset: 'test',
             enabled: [$id],
-            disabled: [],
-            optionalMissing: [],
+            excluded: [],
             topologicalOrder: [$id],
             modules: [
                 new ModulePlanEntry(
@@ -257,7 +255,6 @@ final class WorkerCommandExceptionTaxonomyContractTest extends TestCase
                     composerName: 'coretsia/platform-worker',
                 ),
             ],
-            warnings: [],
         );
     }
 }
