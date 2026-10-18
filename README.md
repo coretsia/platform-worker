@@ -738,6 +738,25 @@ They MUST NOT depend on `platform/cli`.
 
 Full `coretsia worker:*` binary dispatch through container-backed CLI tag discovery remains owned by `platform/cli`.
 
+### CLI command registration and dispatch
+
+`WorkerServiceProvider` contributes all four Worker commands through the canonical `ReservedTags::CLI_COMMAND` (`cli.command`) DI tag. Each command is registered under its exact command-class FQCN as the service id:
+
+```text
+Coretsia\Platform\Worker\Console\WorkerStartCommand
+Coretsia\Platform\Worker\Console\WorkerStopCommand
+Coretsia\Platform\Worker\Console\WorkerStatusCommand
+Coretsia\Platform\Worker\Console\WorkerHealthCommand
+```
+
+Each command class implements `CommandInterface` and declares the public typed constants `NAME`, `SUMMARY`, `GROUP`, `HIDDEN`, `ARGUMENTS`, and `OPTIONS`. The provider derives the exact six tag metadata fields `name`, `summary`, `group`, `hidden`, `arguments`, and `options` from those constants. All four Worker commands declare empty argument and command-specific option descriptors. Their tag registrations use actual priority `0`, without `priority`, `mode`, or other additional metadata keys.
+
+`platform/cli` owns tag discovery, deterministic ordering, metadata validation, command-name collision handling, structural input validation, and lazy command service resolution. The command catalog builds descriptors without constructing Worker command services; the selected command is resolved only during dispatch. Worker owns its command implementations, injected dependencies, domain validation, lifecycle behavior, safe summaries, and exit codes.
+
+Worker commands are discoverable only when `platform.worker` is enabled in the Kernel-resolved Console operations-host `ModulePlan`. Composer package installation alone does not enable the module. Selection of a separate `worker` application target does not implicitly enable `platform.worker` for the Console target.
+
+Normal Worker command dispatch runs through the canonical CLI Kernel UnitOfWork. The per-task UnitOfWork lifecycle of `ApplicationWorker` remains independently owned by KernelRuntime. Worker does not construct a CLI command catalog, implement another command dispatcher, or depend on concrete `platform/cli` implementation classes.
+
 ### `worker:start`
 
 Starts one foreground persistent supervisor.

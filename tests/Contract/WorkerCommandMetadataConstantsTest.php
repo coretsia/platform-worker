@@ -36,10 +36,47 @@ final class WorkerCommandMetadataConstantsTest extends TestCase
         ];
 
         foreach ($commands as $class => $name) {
+            $reflection = new \ReflectionClass($class);
+            $constants = \array_values(
+                \array_filter(
+                    $reflection->getReflectionConstants(\ReflectionClassConstant::IS_PUBLIC),
+                    static fn (
+                        \ReflectionClassConstant $constant,
+                    ): bool => $constant->getDeclaringClass()->getName() === $class,
+                ),
+            );
+            self::assertSame(
+                ['NAME', 'SUMMARY', 'GROUP', 'HIDDEN', 'ARGUMENTS', 'OPTIONS'],
+                \array_map(
+                    static fn (\ReflectionClassConstant $constant): string => $constant->getName(),
+                    $constants,
+                ),
+            );
+
+            foreach (
+                [
+                    'NAME' => 'string',
+                    'SUMMARY' => 'string',
+                    'GROUP' => 'string',
+                    'HIDDEN' => 'bool',
+                    'ARGUMENTS' => 'array',
+                    'OPTIONS' => 'array',
+                ] as $constant => $expectedType
+            ) {
+                $definition = $reflection->getReflectionConstant($constant);
+                self::assertInstanceOf(\ReflectionClassConstant::class, $definition);
+                $type = $definition->getType();
+                self::assertInstanceOf(\ReflectionNamedType::class, $type);
+                self::assertSame($expectedType, $type->getName());
+                self::assertFalse($type->allowsNull());
+            }
+
+            self::assertFalse($reflection->hasConstant('MODE'));
             self::assertSame($name, $class::NAME);
+            self::assertIsString($class::SUMMARY);
+            self::assertNotSame('', $class::SUMMARY);
             self::assertSame('worker', $class::GROUP);
             self::assertFalse($class::HIDDEN);
-            self::assertSame('none', $class::MODE);
             self::assertSame([], $class::ARGUMENTS);
             self::assertSame([], $class::OPTIONS);
         }

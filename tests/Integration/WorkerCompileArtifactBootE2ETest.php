@@ -628,7 +628,6 @@ final class WorkerCompileArtifactBootE2ETest extends PackageTestCase
      *     arguments: list<array<string, mixed>>,
      *     group: string,
      *     hidden: bool,
-     *     mode: string,
      *     name: string,
      *     options: list<array<string, mixed>>,
      *     summary: string
@@ -640,7 +639,6 @@ final class WorkerCompileArtifactBootE2ETest extends PackageTestCase
             'arguments' => $commandClass::ARGUMENTS,
             'group' => $commandClass::GROUP,
             'hidden' => $commandClass::HIDDEN,
-            'mode' => $commandClass::MODE,
             'name' => $commandClass::NAME,
             'options' => $commandClass::OPTIONS,
             'summary' => $commandClass::SUMMARY,

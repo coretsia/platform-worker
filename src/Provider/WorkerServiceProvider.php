@@ -393,7 +393,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
                     WorkerStartCommand::SUMMARY,
                     WorkerStartCommand::GROUP,
                     WorkerStartCommand::HIDDEN,
-                    WorkerStartCommand::MODE,
                     WorkerStartCommand::ARGUMENTS,
                     WorkerStartCommand::OPTIONS,
                 )
@@ -406,7 +405,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
                     WorkerStopCommand::SUMMARY,
                     WorkerStopCommand::GROUP,
                     WorkerStopCommand::HIDDEN,
-                    WorkerStopCommand::MODE,
                     WorkerStopCommand::ARGUMENTS,
                     WorkerStopCommand::OPTIONS,
                 )
@@ -419,7 +417,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
                     WorkerStatusCommand::SUMMARY,
                     WorkerStatusCommand::GROUP,
                     WorkerStatusCommand::HIDDEN,
-                    WorkerStatusCommand::MODE,
                     WorkerStatusCommand::ARGUMENTS,
                     WorkerStatusCommand::OPTIONS,
                 )
@@ -432,7 +429,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
                     WorkerHealthCommand::SUMMARY,
                     WorkerHealthCommand::GROUP,
                     WorkerHealthCommand::HIDDEN,
-                    WorkerHealthCommand::MODE,
                     WorkerHealthCommand::ARGUMENTS,
                     WorkerHealthCommand::OPTIONS,
                 )
@@ -448,7 +444,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
      *     summary: string,
      *     group: string,
      *     hidden: bool,
-     *     mode: string,
      *     arguments: list<array<string, mixed>>,
      *     options: list<array<string, mixed>>
      * }
@@ -458,7 +453,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
         string $summary,
         string $group,
         bool $hidden,
-        string $mode,
         array $arguments,
         array $options
     ): array {
@@ -467,7 +461,6 @@ final class WorkerServiceProvider implements ServiceProviderInterface, Container
             'summary',
             'group',
             'hidden',
-            'mode',
             'arguments',
             'options',
         );

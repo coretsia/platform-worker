@@ -75,7 +75,6 @@ final readonly class WorkerStartCommand implements CommandInterface
     public const string SUMMARY = 'Start the configured worker pool.';
     public const string GROUP = 'worker';
     public const bool HIDDEN = false;
-    public const string MODE = 'none';
     public const array ARGUMENTS = [];
     public const array OPTIONS = [];
 
