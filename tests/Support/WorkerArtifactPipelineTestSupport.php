@@ -48,6 +48,7 @@ use Coretsia\Kernel\Artifacts\Verifier\ArtifactSchemaValidator;
 use Coretsia\Kernel\Artifacts\Verifier\CacheVerifier;
 use Coretsia\Kernel\Boot\BootstrapConfigResolver;
 use Coretsia\Kernel\Boot\BootstrapOverridesLoader;
+use Coretsia\Kernel\Boot\BootstrapSourceResolver;
 use Coretsia\Kernel\Boot\DotenvLoader;
 use Coretsia\Kernel\Boot\EnvRepositoryBuilder;
 use Coretsia\Kernel\Config\ConfigKernel;
@@ -137,14 +138,20 @@ final class WorkerArtifactPipelineTestSupport
             modulesConfig: $modulesConfig,
         );
 
+        $overridesLoader = new BootstrapOverridesLoader();
+        $dotenvLoader = new DotenvLoader();
+        $sourceResolver = new BootstrapSourceResolver(
+            $overridesLoader,
+            $dotenvLoader,
+            new EnvRepositoryBuilder($dotenvLoader),
+        );
+        $bootstrapConfigResolver = new BootstrapConfigResolver(
+            new ModuleIdSetNormalizer(),
+            $sourceResolver,
+        );
+
         return new KernelArtifactOperation(
-            bootstrapConfigResolver: new BootstrapConfigResolver(
-                new BootstrapOverridesLoader(),
-                new ModuleIdSetNormalizer(),
-            ),
-            envRepositoryBuilder: new EnvRepositoryBuilder(
-                new DotenvLoader(),
-            ),
+            bootstrapConfigResolver: $bootstrapConfigResolver,
             moduleResolutionOrchestrator: $moduleResolutionOrchestrator,
             configSourceLocationBuilder: new ConfigSourceLocationBuilder(
                 installPathResolver: new ComposerPackageInstallPathResolver($installRoots),
@@ -154,6 +161,7 @@ final class WorkerArtifactPipelineTestSupport
             artifactCompiler: self::artifactCompiler($kernelConfig),
             cacheVerifier: self::cacheVerifier($kernelConfig),
             kernelConfig: $kernelConfig,
+            bootstrapSourceResolver: $sourceResolver,
         );
     }
 
