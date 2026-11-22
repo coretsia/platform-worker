@@ -20,6 +20,7 @@ namespace Coretsia\Platform\Worker\Tests\Contract;
 
 use Coretsia\Contracts\Cli\Command\CommandInterface;
 use Coretsia\Contracts\Module\ModuleId;
+use Coretsia\Kernel\Config\ArrayConfigRepository;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
 use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
@@ -33,7 +34,6 @@ use Coretsia\Platform\Worker\Internal\WorkerSupervisorInterface;
 use Coretsia\Platform\Worker\Provider\WorkerServiceFactory;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
-use Coretsia\Platform\Worker\Tests\Support\ArrayConfigRepository;
 use Coretsia\Platform\Worker\Tests\Support\RecordingControlClient;
 use Coretsia\Platform\Worker\Tests\Support\RecordingOutput;
 use Coretsia\Platform\Worker\Tests\Support\RecordingSupervisorResolver;
@@ -237,7 +237,7 @@ final class WorkerCommandExceptionTaxonomyContractTest extends TestCase
                 ],
             ],
             'worker' => $worker,
-        ]);
+        ], []);
     }
 
     private static function plan(): ModulePlan

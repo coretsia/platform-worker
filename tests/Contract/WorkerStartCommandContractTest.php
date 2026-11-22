@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Tests\Contract;
 
 use Coretsia\Contracts\Module\ModuleId;
+use Coretsia\Kernel\Config\ArrayConfigRepository;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
 use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
@@ -29,7 +30,6 @@ use Coretsia\Platform\Worker\Runtime\WorkerPoolSpec;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolState;
 use Coretsia\Platform\Worker\Runtime\WorkerPoolStatus;
 use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
-use Coretsia\Platform\Worker\Tests\Support\ArrayConfigRepository;
 use Coretsia\Platform\Worker\Tests\Support\RecordingOutput;
 use Coretsia\Platform\Worker\Tests\Support\RecordingSupervisorResolver;
 use Coretsia\Platform\Worker\Tests\Support\TestInput;
@@ -139,7 +139,7 @@ final class WorkerStartCommandContractTest extends TestCase
                 ],
             ],
             'worker' => $worker,
-        ]);
+        ], []);
     }
 
     private static function plan(bool $withWorker): ModulePlan

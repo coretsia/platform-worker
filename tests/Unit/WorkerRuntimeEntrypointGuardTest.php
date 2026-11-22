@@ -19,6 +19,7 @@ declare(strict_types=1);
 namespace Coretsia\Platform\Worker\Tests\Unit;
 
 use Coretsia\Contracts\Module\ModuleId;
+use Coretsia\Kernel\Config\ArrayConfigRepository;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
 use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
@@ -26,7 +27,6 @@ use Coretsia\Kernel\Runtime\Exception\RuntimeDriverConflictException;
 use Coretsia\Platform\Worker\Exception\WorkerStartFailedException;
 use Coretsia\Platform\Worker\Module\WorkerModule;
 use Coretsia\Platform\Worker\Runtime\WorkerRuntimeEntrypointGuard;
-use Coretsia\Platform\Worker\Tests\Support\ArrayConfigRepository;
 use Coretsia\Platform\Worker\Tests\Support\WorkerSpecFactory;
 use PHPUnit\Framework\TestCase;
 
@@ -48,7 +48,7 @@ final class WorkerRuntimeEntrypointGuardTest extends TestCase
                     'kernel' => [
                         'runtime' => [],
                     ],
-                ]),
+                ], []),
                 modulePlan: self::modulePlan(false),
                 spec: $spec,
             );
@@ -146,7 +146,7 @@ final class WorkerRuntimeEntrypointGuardTest extends TestCase
                     'http_driver' => $httpDriver,
                 ],
             ],
-        ]);
+        ], []);
     }
 
     private static function modulePlan(bool $withWorker): ModulePlan

@@ -19,6 +19,7 @@ declare(strict_types=1);
 use Coretsia\Contracts\Cli\Output\OutputInterface;
 use Coretsia\Contracts\Module\ModuleId;
 use Coretsia\Foundation\Time\Stopwatch;
+use Coretsia\Kernel\Config\ArrayConfigRepository;
 use Coretsia\Kernel\Module\ModulePlan;
 use Coretsia\Kernel\Module\ModulePlanEntry;
 use Coretsia\Kernel\Runtime\Driver\RuntimeDriverResolver;
@@ -54,7 +55,6 @@ use Coretsia\Platform\Worker\Runtime\WorkerStopSignal;
 use Coretsia\Platform\Worker\Supervisor\WorkerChildTable;
 use Coretsia\Platform\Worker\Supervisor\WorkerSignalController;
 use Coretsia\Platform\Worker\Supervisor\WorkerSupervisor;
-use Coretsia\Platform\Worker\Tests\Support\ArrayConfigRepository;
 use Coretsia\Platform\Worker\Tests\Support\RecordingLogger;
 use Coretsia\Platform\Worker\Tests\Support\RecordingMeter;
 use Coretsia\Platform\Worker\Tests\Support\RecordingTracer;
@@ -141,7 +141,7 @@ if (
 $config = coretsia_worker_test_decode_file($configPath);
 $behavior = coretsia_worker_test_decode_file($behaviorPath);
 
-$repository = new ArrayConfigRepository($config);
+$repository = new ArrayConfigRepository($config, []);
 $factory = new WorkerServiceFactory();
 $transport = new WorkerControlTransport($applicationRoot);
 $protocol = new WorkerControlProtocol();

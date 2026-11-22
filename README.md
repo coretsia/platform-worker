@@ -509,10 +509,13 @@ The Kernel boot boundary:
 2. validates one complete immutable generation;
 3. reads exact snapshots for all four generation files;
 4. validates generation metadata and envelope fingerprints;
-5. hydrates `ConfigRepositoryInterface`;
+5. hydrates `ConfigRepositoryInterface` with merged config and canonical source records;
 6. hydrates `ModulePlan`;
-7. creates `RuntimePathContext`;
-8. builds the compiled runtime container.
+7. creates `RuntimeDiagnosticsInput` from the validated `config@1` payload's authoritative frozen `appEnv` and successfully loaded generation state;
+8. creates `RuntimePathContext`;
+9. supplies the complete four-seed set and builds the compiled runtime container.
+
+`ConfigRepositoryInterface`, `ModulePlan`, `RuntimePathContext`, and `RuntimeDiagnosticsInput` are the exact Kernel entrypoint-owned runtime seeds. Kernel owns their hydration and construction. Worker does not independently resolve the environment, discover artifacts for diagnostics, or construct a Worker-specific diagnostics input. The loaded runtime's diagnostics input remains immutable for the lifetime of the child.
 
 After the container is built, the child resolves:
 
