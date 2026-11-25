@@ -32,6 +32,8 @@ final class WorkerLifecycleConfigDriftTest extends SupervisorIntegrationTestCase
         $currentPort = self::differentUnusedTcpPort($activePort);
         ['harness' => $harness] = $this->newHarness(
             workerOverride: [
+                'stop_timeout_ms' => 5_000,
+                'force_kill_timeout_ms' => 2_000,
                 'control' => ['transport' => 'tcp'],
                 'tcp' => [
                     'host' => '127.0.0.1',
@@ -73,7 +75,12 @@ final class WorkerLifecycleConfigDriftTest extends SupervisorIntegrationTestCase
 
     public function testOppositeCurrentTransportStillUsesTheActiveSupervisorTransport(): void
     {
-        ['harness' => $harness] = $this->newHarness();
+        ['harness' => $harness] = $this->newHarness(
+            workerOverride: [
+                'stop_timeout_ms' => 5_000,
+                'force_kill_timeout_ms' => 2_000,
+            ],
+        );
 
         $start = $harness->startAndWaitForSummary();
         $activeTransport = $start['control_transport'] ?? null;
@@ -206,7 +213,7 @@ final class WorkerLifecycleConfigDriftTest extends SupervisorIntegrationTestCase
 
         $startedAt = \hrtime(true);
         $stop = self::onlyPayload($harness->invoke('stop'));
-        $elapsedMs = (int)\floor((\hrtime(true) - $startedAt) / 1_000_000);
+        $elapsedMs = (int) \floor((\hrtime(true) - $startedAt) / 1_000_000);
 
         self::assertSame($start['pid'], $stop['pid']);
         self::assertSame($start['endpoint_hash'], $stop['endpoint_hash']);

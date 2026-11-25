@@ -40,7 +40,7 @@ Abrupt loss of only the foreground supervisor closes the authenticated guardian 
 
 The guardian does not own or clean supervisor state, locator, socket, or stop-flag artifacts. These may remain stale after abrupt supervisor death; after the guardian releases the fence, a free lock is authoritative for `NOT_RUNNING` and the next successful start replaces stale artifacts.
 
-The current Worker process topology and ownership boundaries are documented in `docs/architecture/worker.md` and ADR-0017.
+The current Worker process topology and ownership boundaries are documented in [docs/architecture/worker.md](https://github.com/coretsia/monorepo/blob/main/docs/architecture/worker.md) and [ADR-0017](https://github.com/coretsia/monorepo/blob/main/docs/adr/ADR-0017-persistent-worker-supervisor-application-worker.md).
 
 ## Trusted initial process bootstrap
 
@@ -74,7 +74,7 @@ For `proc`, the Guardian closes its bootstrap stdin and completes ProcHost boots
 
 Worker process bootstrap uses the canonical static Stable JSON primitives owned by Foundation; Stable JSON is not Worker-owned runtime DI state. Worker owns only its process-bootstrap schema and process semantics.
 
-The normative process-bootstrap authority and failure-containment contract is `docs/ssot/worker-process-bootstrap.md`.
+The normative process-bootstrap authority and failure-containment contract is [docs/ssot/worker-process-bootstrap.md](https://github.com/coretsia/monorepo/blob/main/docs/ssot/worker-process-bootstrap.md).
 
 ## Package identity
 
@@ -357,9 +357,7 @@ It does not enumerate or close arbitrary application, integration, extension, de
 
 Integrations used in a process-capable runtime must follow the repository-wide process-exec descriptor-safety SSoT:
 
-```text
-docs/ssot/process-exec-descriptor-safety.md
-```
+[docs/ssot/process-exec-descriptor-safety.md](https://github.com/coretsia/monorepo/blob/main/docs/ssot/process-exec-descriptor-safety.md)
 
 Neither the PCNTL driver nor the proc driver alone proves arbitrary integration-descriptor isolation.
 
@@ -704,7 +702,7 @@ TCP control binds exactly to `127.0.0.1`; no remote or unsafe non-loopback opt-i
 
 This credential is not an isolation boundary against arbitrary processes running under the same compromised operating-system account.
 
-The normative Worker control-protocol and security decisions are recorded in ADR-0017.
+The normative Worker control-protocol and security decisions are recorded in [ADR-0017](https://github.com/coretsia/monorepo/blob/main/docs/adr/ADR-0017-persistent-worker-supervisor-application-worker.md).
 
 ## Worker commands
 
@@ -1049,7 +1047,7 @@ Before readiness publication, the selected source must pass `assertReady(...)`. 
 
 Queue adapters own broker receive, acknowledgement, retry/requeue/dead-letter behavior. HTTP runtime adapters own request receive, request/handler integration, response emission, and failure response behavior. Those adapters own their transport dependencies; `platform/worker` remains transport-neutral.
 
-The canonical task-source contract is documented in `docs/ssot/worker-task-sources.md`.
+The canonical task-source contract is documented in [docs/ssot/worker-task-sources.md](https://github.com/coretsia/monorepo/blob/main/docs/ssot/worker-task-sources.md).
 
 ## State files
 
@@ -1536,20 +1534,20 @@ This package does not provide:
 
 ## References
 
-- [Worker Architecture](https://github.com/coretsia/monorepo/tree/main/docs/architecture/worker.md)
-- [Runtime Driver Resolution Architecture](https://github.com/coretsia/monorepo/tree/main/docs/architecture/runtime-driver-resolution.md)
-- [ADR-0017: Persistent worker supervisor and application worker](https://github.com/coretsia/monorepo/tree/main/docs/adr/ADR-0017-persistent-worker-supervisor-application-worker.md)
-- [Config Roots Registry](https://github.com/coretsia/monorepo/tree/main/docs/ssot/config-roots.md)
-- [Observability SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/observability.md)
-- [Worker Task Sources SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/worker-task-sources.md)
-- [Runtime Drivers SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/runtime-drivers.md)
-- [Runtime Container Definitions SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/runtime-container-definitions.md)
-- [Process-Exec Descriptor Safety SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/process-exec-descriptor-safety.md)
-- [Worker Process Bootstrap SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/worker-process-bootstrap.md)
-- [UnitOfWork and Reset Contracts SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/uow-and-reset-contracts.md)
-- [Artifact Generations SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/artifact-generations.md)
-- [Compiled Container SSoT](https://github.com/coretsia/monorepo/tree/main/docs/ssot/compiled-container.md)
-- [ADR-0029: Kernel compiled container artifact](https://github.com/coretsia/monorepo/tree/main/docs/adr/ADR-0029-kernel-container-compile-artifact.md)
-- [ADR-0031: Atomic Artifact Generations](https://github.com/coretsia/monorepo/tree/main/docs/adr/ADR-0031-atomic-artifact-generations.md)
-- [ADR-0032: Process-Exec Descriptor Safety](https://github.com/coretsia/monorepo/tree/main/docs/adr/ADR-0032-process-exec-descriptor-safety.md)
+- [Worker Architecture](https://github.com/coretsia/monorepo/blob/main/docs/architecture/worker.md)
+- [Runtime Driver Resolution Architecture](https://github.com/coretsia/monorepo/blob/main/docs/architecture/runtime-driver-resolution.md)
+- [ADR-0017: Persistent worker supervisor and application worker](https://github.com/coretsia/monorepo/blob/main/docs/adr/ADR-0017-persistent-worker-supervisor-application-worker.md)
+- [Config Roots Registry](https://github.com/coretsia/monorepo/blob/main/docs/ssot/config-roots.md)
+- [Observability SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/observability.md)
+- [Worker Task Sources SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/worker-task-sources.md)
+- [Runtime Drivers SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/runtime-drivers.md)
+- [Runtime Container Definitions SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/runtime-container-definitions.md)
+- [Process-Exec Descriptor Safety SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/process-exec-descriptor-safety.md)
+- [Worker Process Bootstrap SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/worker-process-bootstrap.md)
+- [UnitOfWork and Reset Contracts SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/uow-and-reset-contracts.md)
+- [Artifact Generations SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/artifact-generations.md)
+- [Compiled Container SSoT](https://github.com/coretsia/monorepo/blob/main/docs/ssot/compiled-container.md)
+- [ADR-0029: Kernel compiled container artifact](https://github.com/coretsia/monorepo/blob/main/docs/adr/ADR-0029-kernel-container-compile-artifact.md)
+- [ADR-0031: Atomic Artifact Generations](https://github.com/coretsia/monorepo/blob/main/docs/adr/ADR-0031-atomic-artifact-generations.md)
+- [ADR-0032: Process-Exec Descriptor Safety](https://github.com/coretsia/monorepo/blob/main/docs/adr/ADR-0032-process-exec-descriptor-safety.md)
 - [Worker package source](https://github.com/coretsia/monorepo/tree/main/packages/platform/worker)

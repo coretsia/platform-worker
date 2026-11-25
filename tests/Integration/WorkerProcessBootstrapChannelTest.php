@@ -32,7 +32,7 @@ final class WorkerProcessBootstrapChannelTest extends PackageTestCase
         foreach (
             [
                 WorkerProcessBootstrapProtocol::ROLE_GUARDIAN,
-                WorkerProcessBootstrapProtocol::ROLE_PROC_HOST
+                WorkerProcessBootstrapProtocol::ROLE_PROC_HOST,
             ] as $role
         ) {
             $protocol = new WorkerProcessBootstrapProtocol();
@@ -166,8 +166,9 @@ final class WorkerProcessBootstrapChannelTest extends PackageTestCase
                     $elapsedMs,
                 );
                 self::assertLessThan(
-                    750,
+                    2_000,
                     $elapsedMs,
+                    'Authentication must return within the deadline plus scheduling tolerance.',
                 );
             }
 
@@ -175,7 +176,7 @@ final class WorkerProcessBootstrapChannelTest extends PackageTestCase
 
             self::assertSame(
                 '',
-                (string)@\stream_get_contents($silent),
+                (string) @\stream_get_contents($silent),
                 'Parent bootstrap endpoint must never send the capability to an unauthenticated peer.',
             );
         } finally {

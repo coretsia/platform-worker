@@ -18,6 +18,7 @@ declare(strict_types=1);
 
 namespace Coretsia\Platform\Worker\Tests\Support;
 
+use Coretsia\Foundation\Filesystem\AtomicFileWriter;
 use Coretsia\Foundation\Observability\Metrics\NoopMeter;
 use Coretsia\Foundation\Observability\Tracing\NoopTracer;
 use Coretsia\Foundation\Time\Stopwatch;
@@ -444,6 +445,7 @@ final class WorkerArtifactPipelineTestSupport
                 phpArrayDumper: new StablePhpArrayDumper(
                     new PayloadNormalizer(),
                 ),
+                atomicFileWriter: new AtomicFileWriter(),
                 tracer: new NoopTracer(),
                 meter: new NoopMeter(),
                 logger: new NullLogger(),

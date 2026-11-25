@@ -44,6 +44,7 @@ use Psr\Log\LoggerInterface;
  */
 final class WorkerControlClient implements WorkerControlClientInterface
 {
+    private const int READ_ONLY_REQUEST_TIMEOUT_MS = 3_000;
     private const string SPAN_WORKER_PROCESS = 'worker.process';
     private const string METRIC_WORKER_PROCESS_TOTAL = 'worker.process_total';
     private const string LOG_EVENT_WORKER_STATUS = 'worker.process.status';
@@ -77,7 +78,7 @@ final class WorkerControlClient implements WorkerControlClientInterface
         try {
             [$response, $locator] = $this->request(
                 WorkerControlOperation::STATUS,
-                1_000,
+                self::READ_ONLY_REQUEST_TIMEOUT_MS,
             );
 
             $state = $this->stateResult(
@@ -118,7 +119,7 @@ final class WorkerControlClient implements WorkerControlClientInterface
     {
         [$response, $locator] = $this->request(
             WorkerControlOperation::HEALTH,
-            1_000,
+            self::READ_ONLY_REQUEST_TIMEOUT_MS,
         );
 
         if ($response->status() !== WorkerControlResponse::STATUS_OK) {
@@ -267,7 +268,7 @@ final class WorkerControlClient implements WorkerControlClientInterface
             throw WorkerCommunicationFailedException::communicationFailed();
         }
 
-        return \max(1, (int)\ceil($remainingNs / 1_000_000));
+        return \max(1, (int) \ceil($remainingNs / 1_000_000));
     }
 
     private function stateResult(
@@ -419,6 +420,6 @@ final class WorkerControlClient implements WorkerControlClientInterface
     private function nextRequestId(): string
     {
         $this->requestCounter++;
-        return 'request-' . (string)\getmypid() . '-' . (string)$this->requestCounter;
+        return 'request-' . (string) \getmypid() . '-' . (string) $this->requestCounter;
     }
 }
